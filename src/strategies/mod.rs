@@ -44,9 +44,11 @@ pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
 
 pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
     let mut strategies = Vec::new();
-    for i in 1..=15 { // Increased from 10 to 15 variants
-        let prob = i as f64 / 30.0;
-        let name = format!("Forgiving Tit For Tat ({:.1}%)", prob * 100.0);
+    
+    // 200 variants de Forgiving Tit For Tat (de 0.5% à 100% de pardon)
+    for i in 1..=200 {
+        let prob = i as f64 / 200.0;
+        let name = format!("Forgiving TFT ({:.1}%)", prob * 100.0);
         strategies.push(Box::new(FunctionalStrategy {
             name,
             next_move_fn: move |_, opp_h| {
@@ -60,7 +62,9 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
             },
         }) as Box<dyn Strategy>);
     }
-    for n in 2..=8 { // Wider range of N-Tats
+
+    // 100 variants de N-Tats (mémoire de 2 à 100 trahisons)
+    for n in 2..=101 {
         let name = format!("{}-Tats", n);
         strategies.push(Box::new(FunctionalStrategy {
             name,
@@ -71,5 +75,19 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
             },
         }) as Box<dyn Strategy>);
     }
+
+    // 100 variants de "Random Biased" (de 1% à 100% de coopération aléatoire)
+    for i in 1..=100 {
+        let prob = i as f64 / 100.0;
+        let name = format!("Biased Random ({:.0}%)", prob * 100.0);
+        strategies.push(Box::new(FunctionalStrategy {
+            name,
+            next_move_fn: move |_, _| {
+                let mut rng = rand::rng();
+                if rng.random_bool(prob) { Action::Cooperate } else { Action::Defect }
+            },
+        }) as Box<dyn Strategy>);
+    }
+
     strategies
 }
