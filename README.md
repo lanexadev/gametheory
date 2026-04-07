@@ -1,51 +1,131 @@
-# Advanced Axelrod Game Theory Engine in Rust
+# 🦀 Axelrod's Game Theory Engine (Rust)
 
-This project is a highly optimized and feature-rich Rust implementation of Robert Axelrod's Iterated Prisoner's Dilemma tournament. It supports evolutionary dynamics, spatial grid tournaments, complex noise models, and customizable game theory parameters.
+[![Rust](https://img.shields.io/badge/language-Rust-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## New Advanced Features
+An advanced, high-performance simulation engine for Robert Axelrod's **Iterated Prisoner's Dilemma**. This project implements complex game theory dynamics, including evolutionary selection, spatial cellular automata, and multi-layered noise models.
 
-- **Evolutionary Dynamics**: Simulate population growth over generations using natural selection (`--evolution`).
-- **Spatial Grid Tournaments**: Place strategies on a 2D grid where they play their neighbors and the most successful strategies conquer adjacent cells (`--spatial`).
-- **Parallel Execution**: Uses `rayon` to parallelize round-robin and swiss match execution, supporting massive strategy pools.
-- **Custom Payoff Matrix**: Adjust the core game theory incentives: Temptation (T), Reward (R), Punishment (P), and Sucker's payoff (S).
-- **Advanced Noise Models**: 
-  - **Action Noise**: Probablity a player accidentally plays the wrong move.
-  - **Perception Noise**: Probability a player *misinterprets* the opponent's move, decoupling action from perceived history.
-- **Discount Factor**: Probability that the game ends after any given round, simulating the uncertainty of future interactions.
-- **Data Export**: Export final scores to CSV for external analysis (`--export-csv`).
-- **Reproducibility**: Set an RNG seed (`--seed`) for deterministic simulations despite noise and random strategies.
-- **New Strategy Families**: Added `Handshake` (group recognition), `Statistical` (basic opponent modeling), and `Limited Memory` variants.
+---
 
-## How to Use
+## 📖 Theoretical Background
 
-### Basic Tournament
+The **Prisoner's Dilemma** is a standard example of a game analyzed in game theory that shows why two completely rational individuals might not cooperate, even if it appears that it is in their best interests to do so.
+
+### The Payoff Matrix
+| Player A / Player B | Cooperate (C) | Defect (D) |
+| :--- | :---: | :---: |
+| **Cooperate (C)** | 3 / 3 (R) | 0 / 5 (S/T) |
+| **Defect (D)** | 5 / 0 (T/S) | 1 / 1 (P) |
+
+*   **R (Reward)**: Mutual cooperation.
+*   **T (Temptation)**: One defects while the other cooperates.
+*   **S (Sucker)**: One cooperates while the other defects.
+*   **P (Punishment)**: Mutual defection.
+
+---
+
+## 🚀 Key Features
+
+### 🔬 Advanced Simulation Engine
+*   **Action Noise**: The probability that a strategy's intended move is flipped (e.g., "mis-click").
+*   **Perception Noise**: The probability that a move is misinterpreted by the opponent (e.g., "miscommunication").
+*   **Discount Factor**: A probability (0.0 to 1.0) that the game ends after any given turn, simulating an infinite horizon with an unknown end.
+*   **Custom Payoffs**: Fully adjustable T, R, P, S values via CLI.
+*   **Deterministic Seeds**: Use `--seed <u64>` to reproduce exact simulation results.
+
+### 🏆 Tournament Modes
+1.  **Round Robin**: Every strategy plays against everyone else (including itself). Optimized with **Rayon** for massive parallelism.
+2.  **Swiss System**: Used for large populations. Strategies are paired against others with similar scores to find the elite quickly.
+3.  **Evolutionary Dynamics**: A Darwinian simulation where unsuccessful strategies go extinct and winners reproduce over generations.
+4.  **Spatial Grid (Cellular Automata)**: Strategies live on a 2D grid and interact only with neighbors. Successful strategies "conquer" adjacent cells.
+
+### 🛠 Modular Architecture
+*   **File-per-Strategy**: Every strategy is isolated in its own file under `src/strategies/`.
+*   **Functional Strategy Factory**: Create hundreds of variants (e.g., Forgiving-Tit-for-Tat with 5% to 95% forgiveness) using closures.
+
+---
+
+## 💻 Installation
+
+Ensure you have [Rust](https://rustup.rs/) installed.
+
 ```bash
-cargo run -- --iterations 200 --action-noise 0.05
+git clone https://github.com/lanexadev/gametheory.git
+cd gametheory
+cargo build --release
 ```
 
-### Evolutionary Simulation
-Simulate 100 generations where the bottom 20% of strategies are replaced by clones of the top 20%:
+---
+
+## 🕹 Usage Examples
+
+### 1. Standard Round Robin
+Run a tournament with 200 iterations and 2% action noise:
 ```bash
-cargo run -- --evolution --generations 100 --reproduction-rate 0.2
+cargo run -- --iterations 200 --action-noise 0.02
 ```
 
-### Spatial Grid Tournament
-Run a cellular automaton style simulation on a 50x50 grid for 20 generations:
+### 2. Evolutionary Survival
+Simulate 50 generations of evolution. In each generation, the bottom 20% of the population is replaced by the top 20%:
 ```bash
-cargo run -- --spatial --grid-size 50 --generations 20
+cargo run -- --evolution --generations 50 --reproduction-rate 0.2
 ```
 
-### Custom Game Parameters
-Modify the payoff matrix and add an unknown end-game probability (discount factor):
+### 3. Spatial Territorial War
+Run a 30x30 grid for 100 steps. Watch how "cooperation bubbles" form and resist "defector invasions":
 ```bash
-cargo run -- --payoff-t 6 --payoff-r 4 --discount-factor 0.01
+cargo run -- --spatial --grid-size 30 --generations 100
 ```
 
-### Exporting Data and Reproducibility
+### 4. High-Stakes Finale
+Identify the top 3 strategies from a round-robin and make them play a long-duration final (5x iterations):
 ```bash
-cargo run -- --export-csv results.csv --seed 42
+cargo run -- --finale --iterations 1000
 ```
 
-## Adding new strategies
+---
 
-You can quickly add new strategies in `src/strategies.rs` using `FunctionalStrategy`, or by implementing the `Strategy` trait for complex stateful logic.
+## 🧪 Adding a New Strategy
+
+The project is designed for easy extension. To add a strategy named `MyStrategy`:
+
+1.  Create `src/strategies/my_strategy.rs`:
+    ```rust
+    use crate::{Action, Strategy};
+
+    #[derive(Clone, Default)]
+    pub struct MyStrategy;
+
+    impl Strategy for MyStrategy {
+        fn name(&self) -> &str { "My Strategy Name" }
+        fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
+            // Your logic here
+            Action::Cooperate
+        }
+        fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
+    }
+    ```
+2.  In `src/strategies/mod.rs`:
+    *   Add `pub mod my_strategy;`
+    *   Add `Box::new(my_strategy::MyStrategy::default()),` to `get_all_strategies()`.
+
+---
+
+## 📊 CLI Reference
+
+| Flag | Description | Default |
+| :--- | :--- | :---: |
+| `-i, --iterations` | Number of turns per match | 200 |
+| `--action-noise` | Probability of move flip (0.0 - 1.0) | 0.0 |
+| `--perception-noise` | Probability of misinterpretation | 0.0 |
+| `--discount-factor` | Probability of match end per turn | 0.0 |
+| `--evolution` | Enable evolutionary mode | false |
+| `--spatial` | Enable spatial grid mode | false |
+| `--grid-size` | Width/Height of spatial grid | 20 |
+| `--seed` | RNG seed for reproducibility | None |
+| `--export-csv` | Path to export final results | None |
+
+---
+
+## 📜 License
+This project is licensed under the MIT License - see the LICENSE file for details.
