@@ -1,3 +1,5 @@
+/// Tit For Two Tats: A more forgiving version of Tit For Tat. 
+/// Only defects if the opponent has defected in both of the last two turns.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

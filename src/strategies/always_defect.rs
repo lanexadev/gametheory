@@ -1,3 +1,4 @@
+/// Always Defect: A "Nasty" strategy that always tries to exploit the opponent and never cooperates.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

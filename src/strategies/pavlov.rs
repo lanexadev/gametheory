@@ -1,3 +1,5 @@
+/// Pavlov (Win-Stay, Lose-Shift): Cooperates if it and the opponent played the same move last turn, 
+/// otherwise it switches its behavior.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

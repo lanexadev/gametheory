@@ -1,3 +1,5 @@
+/// Tit For Tat With Forgiveness: A robust version of Tit For Tat that has a 10% chance to 
+/// forgive a defection by cooperating anyway, helping to break infinite revenge cycles.
 use crate::{Action, Strategy};
 use rand::Rng;
 

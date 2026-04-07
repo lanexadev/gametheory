@@ -1,3 +1,5 @@
+/// Statistical: Analyzes the opponent's historical behavior. 
+/// Defects if the opponent's total defection rate is greater than 50%.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

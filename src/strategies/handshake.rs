@@ -1,3 +1,5 @@
+/// Handshake: A group-recognition strategy. Starts with [Cooperate, Defect]. 
+/// If the opponent matches this sequence, it cooperates forever; otherwise, it defects forever.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

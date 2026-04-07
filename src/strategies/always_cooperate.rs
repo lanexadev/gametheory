@@ -1,3 +1,4 @@
+/// Always Cooperate: A "Saint" strategy that never defects, regardless of the opponent's behavior.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

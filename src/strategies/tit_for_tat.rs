@@ -1,3 +1,4 @@
+/// Tit For Tat: The classic reciprocal strategy. Starts with Cooperation, then mimics the opponent's last move.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

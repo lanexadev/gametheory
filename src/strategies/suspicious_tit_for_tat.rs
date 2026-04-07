@@ -1,3 +1,4 @@
+/// Suspicious Tit For Tat: Identical to Tit For Tat, but starts with a Defection instead of Cooperation.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

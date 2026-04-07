@@ -1,3 +1,5 @@
+/// Grudger: Cooperates until the opponent defects once, then defects for the rest of the game. 
+/// Extremely unforgiving.
 use crate::{Action, Strategy};
 
 #[derive(Clone, Default)]

@@ -1,3 +1,5 @@
+/// Joss: A "sneaky" Tit For Tat. Usually mimics the opponent, but has a 10% chance to defect 
+/// even when the opponent cooperated, hoping to gain extra points.
 use crate::{Action, Strategy};
 use rand::Rng;
 
