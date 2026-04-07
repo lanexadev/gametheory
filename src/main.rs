@@ -103,9 +103,17 @@ fn main() {
 
     if args.evolution {
         println!("Running Evolutionary Tournament ({} generations, {:.0}% reproduction)...", args.generations, args.reproduction_rate * 100.0);
-        results = tournament.run_evolution(args.generations, args.reproduction_rate);
+        let (final_scores, evolution_history) = tournament.run_evolution(args.generations, args.reproduction_rate);
+        results = final_scores;
         
-        // Results map strategy names to scores in the final generation
+        if let Some(path) = &args.export_csv {
+            let history_path = path.replace(".csv", "_evolution.csv");
+            if let Err(e) = export_evolution_history(&history_path, &evolution_history) {
+                eprintln!("Failed to export evolution history: {}", e);
+            } else {
+                println!("Evolution history exported to {}", history_path);
+            }
+        }
         display_results(&results);
     } else if args.swiss {
         println!("Running Swiss System ({} rounds)...", args.swiss_rounds);
@@ -147,6 +155,37 @@ fn display_results(scores: &HashMap<String, i32>) {
     for (name, score) in final_results.iter().take(20) {
         println!("{:<30} | {:<10}", name, score);
     }
+}
+
+fn export_evolution_history(path: &str, history: &[HashMap<String, usize>]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut wtr = csv::Writer::from_path(path)?;
+    
+    // Get all unique strategy names
+    let mut all_names: Vec<_> = history.iter()
+        .flat_map(|h| h.keys())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    all_names.sort();
+
+    // Header: Generation, Strategy1, Strategy2, ...
+    let mut header = vec!["Generation".to_string()];
+    for name in &all_names {
+        header.push(name.to_string());
+    }
+    wtr.write_record(&header)?;
+
+    for (generation, counts) in history.iter().enumerate() {
+        let mut row = vec![generation.to_string()];
+        for name in &all_names {
+            let count = counts.get(*name).unwrap_or(&0);
+            row.push(count.to_string());
+        }
+        wtr.write_record(&row)?;
+    }
+    
+    wtr.flush()?;
+    Ok(())
 }
 
 fn export_to_csv(path: &str, scores: &HashMap<String, i32>) -> Result<(), Box<dyn std::error::Error>> {

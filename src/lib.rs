@@ -220,8 +220,17 @@ impl Tournament {
         final_results.into_iter().max_by_key(|&(_, score)| score).unwrap().0
     }
 
-    pub fn run_evolution(&mut self, generations: usize, reproduction_rate: f64) -> HashMap<String, i32> {
+    pub fn run_evolution(&mut self, generations: usize, reproduction_rate: f64) -> (HashMap<String, i32>, Vec<HashMap<String, usize>>) {
+        let mut history = Vec::new();
+        
         for _ in 0..generations {
+            // Record current population counts
+            let mut counts = HashMap::new();
+            for s in &self.strategies {
+                *counts.entry(s.name().to_string()).or_insert(0) += 1;
+            }
+            history.push(counts);
+
             let scores = self.run_round_robin();
             let mut sorted_scores: Vec<_> = scores.into_iter().collect();
             sorted_scores.sort_by(|a, b| b.1.cmp(&a.1));
@@ -229,7 +238,6 @@ impl Tournament {
             let pop_size = self.strategies.len();
             let keep_count = (pop_size as f64 * (1.0 - reproduction_rate)) as usize;
             
-            // Keep top keep_count, clone top performers to fill the rest
             let mut next_gen = Vec::new();
             for i in 0..keep_count {
                 let name = &sorted_scores[i].0;
@@ -239,7 +247,6 @@ impl Tournament {
             
             let replace_count = pop_size - keep_count;
             for i in 0..replace_count {
-                // Duplicate best performers
                 let name = &sorted_scores[i % keep_count.max(1)].0;
                 let strat = self.strategies.iter().find(|s| s.name() == name).unwrap();
                 next_gen.push(strat.clone());
@@ -248,7 +255,14 @@ impl Tournament {
             self.strategies = next_gen;
         }
         
-        self.run_round_robin()
+        // Final counts for last gen
+        let mut final_counts = HashMap::new();
+        for s in &self.strategies {
+            *final_counts.entry(s.name().to_string()).or_insert(0) += 1;
+        }
+        history.push(final_counts);
+
+        (self.run_round_robin(), history)
     }
 }
 
