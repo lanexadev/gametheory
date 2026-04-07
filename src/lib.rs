@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
+use rayon::prelude::*;
 
 pub mod strategies;
 
@@ -52,40 +54,74 @@ impl Clone for Box<dyn Strategy> {
     }
 }
 
+#[derive(Clone)]
 pub struct Game {
     pub iterations: usize,
-    pub noise: f64, // Probability of flipping an action
+    pub action_noise: f64,
+    pub perception_noise: f64,
+    pub discount_factor: f64,
+    pub payoffs: (i32, i32, i32, i32), // T, R, P, S
+    pub seed: Option<u64>,
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Self {
+            iterations: 200,
+            action_noise: 0.0,
+            perception_noise: 0.0,
+            discount_factor: 0.0,
+            payoffs: (5, 3, 1, 0),
+            seed: None,
+        }
+    }
 }
 
 impl Game {
-    pub fn play(&self, s1: &dyn Strategy, s2: &dyn Strategy) -> (i32, i32, History) {
-        let mut h1 = Vec::new();
-        let mut h2 = Vec::new();
+    pub fn play(&self, s1: &dyn Strategy, s2: &dyn Strategy, match_seed: Option<u64>) -> (i32, i32, History) {
+        let mut h1_actual = Vec::new();
+        let mut h2_actual = Vec::new();
+        let mut h1_perceived_by_2 = Vec::new();
+        let mut h2_perceived_by_1 = Vec::new();
+        
         let mut score1 = 0;
         let mut score2 = 0;
         let mut history = Vec::new();
 
-        let mut rng = rand::rng();
+        let mut rng = match match_seed.or(self.seed) {
+            Some(s) => ChaCha8Rng::seed_from_u64(s),
+            None => ChaCha8Rng::from_os_rng(),
+        };
 
         for _ in 0..self.iterations {
-            let m1 = s1.next_move(&h1, &h2);
-            let m2 = s2.next_move(&h2, &h1);
+            if self.discount_factor > 0.0 && rng.random_bool(self.discount_factor) {
+                break;
+            }
 
-            // Apply noise
-            let m1_actual = if rng.random_bool(self.noise) { m1.flip() } else { m1 };
-            let m2_actual = if rng.random_bool(self.noise) { m2.flip() } else { m2 };
+            let m1 = s1.next_move(&h1_actual, &h2_perceived_by_1);
+            let m2 = s2.next_move(&h2_actual, &h1_perceived_by_2);
 
+            let m1_actual = if rng.random_bool(self.action_noise) { m1.flip() } else { m1 };
+            let m2_actual = if rng.random_bool(self.action_noise) { m2.flip() } else { m2 };
+
+            let m1_perceived = if rng.random_bool(self.perception_noise) { m1_actual.flip() } else { m1_actual };
+            let m2_perceived = if rng.random_bool(self.perception_noise) { m2_actual.flip() } else { m2_actual };
+
+            let (t, r, p, s) = self.payoffs;
             let (p1, p2) = match (m1_actual, m2_actual) {
-                (Action::Cooperate, Action::Cooperate) => (3, 3),
-                (Action::Cooperate, Action::Defect) => (0, 5),
-                (Action::Defect, Action::Cooperate) => (5, 0),
-                (Action::Defect, Action::Defect) => (1, 1),
+                (Action::Cooperate, Action::Cooperate) => (r, r),
+                (Action::Cooperate, Action::Defect) => (s, t),
+                (Action::Defect, Action::Cooperate) => (t, s),
+                (Action::Defect, Action::Defect) => (p, p),
             };
 
             score1 += p1;
             score2 += p2;
-            h1.push(m1_actual);
-            h2.push(m2_actual);
+            
+            h1_actual.push(m1_actual);
+            h2_actual.push(m2_actual);
+            h1_perceived_by_2.push(m1_perceived);
+            h2_perceived_by_1.push(m2_perceived);
             history.push((m1_actual, m2_actual));
         }
 
@@ -99,30 +135,38 @@ pub struct Tournament {
 }
 
 impl Tournament {
-    pub fn new(strategies: Vec<Box<dyn Strategy>>, iterations: usize, noise: f64) -> Self {
-        Self {
-            strategies,
-            game: Game { iterations, noise },
-        }
+    pub fn new(strategies: Vec<Box<dyn Strategy>>, game: Game) -> Self {
+        Self { strategies, game }
     }
 
     pub fn run_round_robin(&self) -> HashMap<String, i32> {
+        let n = self.strategies.len();
+        let mut pairs = Vec::new();
+        for i in 0..n {
+            for j in i..n {
+                pairs.push((i, j));
+            }
+        }
+
+        let results: Vec<_> = pairs.into_par_iter().map(|(i, j)| {
+            let s1 = &self.strategies[i];
+            let s2 = &self.strategies[j];
+            let match_seed = self.game.seed.map(|s| s.wrapping_add((i * n + j) as u64));
+            let (sc1, sc2, _) = self.game.play(s1.as_ref(), s2.as_ref(), match_seed);
+            (i, j, sc1, sc2)
+        }).collect();
+
         let mut scores = HashMap::new();
         for s in &self.strategies {
             scores.insert(s.name().to_string(), 0);
         }
 
-        for i in 0..self.strategies.len() {
-            for j in i..self.strategies.len() {
-                let s1 = &self.strategies[i];
-                let s2 = &self.strategies[j];
-
-                let (sc1, sc2, _) = self.game.play(s1.as_ref(), s2.as_ref());
-
-                *scores.get_mut(s1.name()).unwrap() += sc1;
-                if i != j {
-                    *scores.get_mut(s2.name()).unwrap() += sc2;
-                }
+        for (i, j, sc1, sc2) in results {
+            let name1 = self.strategies[i].name();
+            let name2 = self.strategies[j].name();
+            *scores.get_mut(name1).unwrap() += sc1;
+            if i != j {
+                *scores.get_mut(name2).unwrap() += sc2;
             }
         }
         scores
@@ -131,21 +175,28 @@ impl Tournament {
     pub fn run_swiss(&self, rounds: usize) -> HashMap<String, i32> {
         let mut scores: Vec<(i32, Box<dyn Strategy>)> = self.strategies.iter().map(|s| (0, s.clone())).collect();
 
-        for _ in 0..rounds {
-            // Sort by score for pairing
+        for r in 0..rounds {
             scores.sort_by(|a, b| b.0.cmp(&a.0));
-
-            // Pair adjacent players (1-2, 3-4, etc.)
+            
+            // Extract pairs sequentially to handle mutability
+            let mut pairs = Vec::new();
             for i in (0..scores.len()).step_by(2) {
                 if i + 1 < scores.len() {
-                    let (sc1, sc2, _) = {
-                        let s1 = &scores[i].1;
-                        let s2 = &scores[i+1].1;
-                        self.game.play(s1.as_ref(), s2.as_ref())
-                    };
-                    scores[i].0 += sc1;
-                    scores[i+1].0 += sc2;
+                    pairs.push((i, i + 1));
                 }
+            }
+
+            let results: Vec<_> = pairs.into_par_iter().map(|(i, j)| {
+                let s1 = &scores[i].1;
+                let s2 = &scores[j].1;
+                let match_seed = self.game.seed.map(|s| s.wrapping_add((r * scores.len() + i) as u64));
+                let (sc1, sc2, _) = self.game.play(s1.as_ref(), s2.as_ref(), match_seed);
+                (i, j, sc1, sc2)
+            }).collect();
+
+            for (i, j, sc1, sc2) in results {
+                scores[i].0 += sc1;
+                scores[j].0 += sc2;
             }
         }
 
@@ -161,11 +212,125 @@ impl Tournament {
             self.strategies.iter().find(|s| s.name() == name).unwrap().clone()
         }).collect();
 
-        // Finals is a Round Robin with more iterations
-        let finals_game = Game { iterations: self.game.iterations * 5, noise: self.game.noise };
-        let finals_tournament = Tournament::new(top_strats, finals_game.iterations, finals_game.noise);
+        let mut finals_game = self.game.clone();
+        finals_game.iterations *= 5;
+        let finals_tournament = Tournament::new(top_strats, finals_game);
         let final_results = finals_tournament.run_round_robin();
 
         final_results.into_iter().max_by_key(|&(_, score)| score).unwrap().0
+    }
+
+    pub fn run_evolution(&mut self, generations: usize, reproduction_rate: f64) -> HashMap<String, i32> {
+        for _ in 0..generations {
+            let scores = self.run_round_robin();
+            let mut sorted_scores: Vec<_> = scores.into_iter().collect();
+            sorted_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            
+            let pop_size = self.strategies.len();
+            let keep_count = (pop_size as f64 * (1.0 - reproduction_rate)) as usize;
+            
+            // Keep top keep_count, clone top performers to fill the rest
+            let mut next_gen = Vec::new();
+            for i in 0..keep_count {
+                let name = &sorted_scores[i].0;
+                let strat = self.strategies.iter().find(|s| s.name() == name).unwrap();
+                next_gen.push(strat.clone());
+            }
+            
+            let replace_count = pop_size - keep_count;
+            for i in 0..replace_count {
+                // Duplicate best performers
+                let name = &sorted_scores[i % keep_count.max(1)].0;
+                let strat = self.strategies.iter().find(|s| s.name() == name).unwrap();
+                next_gen.push(strat.clone());
+            }
+            
+            self.strategies = next_gen;
+        }
+        
+        self.run_round_robin()
+    }
+}
+
+pub struct SpatialTournament {
+    pub grid: Vec<Vec<Box<dyn Strategy>>>,
+    pub game: Game,
+}
+
+impl SpatialTournament {
+    pub fn new(width: usize, height: usize, strategies: Vec<Box<dyn Strategy>>, game: Game) -> Self {
+        let mut rng = ChaCha8Rng::from_os_rng();
+        let mut grid = Vec::new();
+        for _ in 0..height {
+            let mut row = Vec::new();
+            for _ in 0..width {
+                let idx = rng.random_range(0..strategies.len());
+                row.push(strategies[idx].clone());
+            }
+            grid.push(row);
+        }
+        Self { grid, game }
+    }
+
+    pub fn step(&mut self) {
+        let height = self.grid.len();
+        let width = self.grid[0].len();
+        
+        // Calculate scores for each cell
+        let mut scores = vec![vec![0; width]; height];
+        
+        for y in 0..height {
+            for x in 0..width {
+                let s1 = &self.grid[y][x];
+                let mut cell_score = 0;
+                
+                // Moore neighborhood (8 neighbors)
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        if dy == 0 && dx == 0 { continue; }
+                        let ny = (y as isize + dy).rem_euclid(height as isize) as usize;
+                        let nx = (x as isize + dx).rem_euclid(width as isize) as usize;
+                        let s2 = &self.grid[ny][nx];
+                        let (sc1, _, _) = self.game.play(s1.as_ref(), s2.as_ref(), None);
+                        cell_score += sc1;
+                    }
+                }
+                scores[y][x] = cell_score;
+            }
+        }
+        
+        // Update grid
+        let mut new_grid = Vec::new();
+        for y in 0..height {
+            let mut row = Vec::new();
+            for x in 0..width {
+                let mut best_score = scores[y][x];
+                let mut best_strat = self.grid[y][x].clone();
+                
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let ny = (y as isize + dy).rem_euclid(height as isize) as usize;
+                        let nx = (x as isize + dx).rem_euclid(width as isize) as usize;
+                        if scores[ny][nx] > best_score {
+                            best_score = scores[ny][nx];
+                            best_strat = self.grid[ny][nx].clone();
+                        }
+                    }
+                }
+                row.push(best_strat);
+            }
+            new_grid.push(row);
+        }
+        self.grid = new_grid;
+    }
+    
+    pub fn get_population_counts(&self) -> HashMap<String, usize> {
+        let mut counts = HashMap::new();
+        for row in &self.grid {
+            for cell in row {
+                *counts.entry(cell.name().to_string()).or_insert(0) += 1;
+            }
+        }
+        counts
     }
 }

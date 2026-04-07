@@ -1,53 +1,51 @@
-# Axelrod's Game Theory Tournament in Rust
+# Advanced Axelrod Game Theory Engine in Rust
 
-This project is a Rust implementation of Robert Axelrod's famous Iterated Prisoner's Dilemma tournament. It allows for testing numerous strategies, including those with noise (random action flips) and different tournament formats.
+This project is a highly optimized and feature-rich Rust implementation of Robert Axelrod's Iterated Prisoner's Dilemma tournament. It supports evolutionary dynamics, spatial grid tournaments, complex noise models, and customizable game theory parameters.
 
-## Features
+## New Advanced Features
 
-- **Robust Strategy Trait**: Easily implement new strategies by defining their `next_move`.
-- **Functional Strategy Factory**: Quickly generate hundreds of strategy variants using closures.
-- **Tournament Modes**:
-  - **Round Robin**: Every strategy plays against every other strategy (including itself).
-  - **Swiss System**: Strategies are paired based on their current scores.
-- **Grand Finale**: A high-stakes tournament for the top performers.
-- **Configurable Parameters**: Adjust iterations, noise levels, and repetitions via CLI.
+- **Evolutionary Dynamics**: Simulate population growth over generations using natural selection (`--evolution`).
+- **Spatial Grid Tournaments**: Place strategies on a 2D grid where they play their neighbors and the most successful strategies conquer adjacent cells (`--spatial`).
+- **Parallel Execution**: Uses `rayon` to parallelize round-robin and swiss match execution, supporting massive strategy pools.
+- **Custom Payoff Matrix**: Adjust the core game theory incentives: Temptation (T), Reward (R), Punishment (P), and Sucker's payoff (S).
+- **Advanced Noise Models**: 
+  - **Action Noise**: Probablity a player accidentally plays the wrong move.
+  - **Perception Noise**: Probability a player *misinterprets* the opponent's move, decoupling action from perceived history.
+- **Discount Factor**: Probability that the game ends after any given round, simulating the uncertainty of future interactions.
+- **Data Export**: Export final scores to CSV for external analysis (`--export-csv`).
+- **Reproducibility**: Set an RNG seed (`--seed`) for deterministic simulations despite noise and random strategies.
+- **New Strategy Families**: Added `Handshake` (group recognition), `Statistical` (basic opponent modeling), and `Limited Memory` variants.
 
-## How to use
+## How to Use
 
-### Run a basic tournament
+### Basic Tournament
 ```bash
-cargo run -- --iterations 200 --noise 0.05 --repetitions 1
+cargo run -- --iterations 200 --action-noise 0.05
 ```
 
-### Run with a Grand Finale for the top performers
+### Evolutionary Simulation
+Simulate 100 generations where the bottom 20% of strategies are replaced by clones of the top 20%:
 ```bash
-cargo run -- --iterations 200 --noise 0.02 --finale
+cargo run -- --evolution --generations 100 --reproduction-rate 0.2
 ```
 
-### Run a Swiss System tournament
+### Spatial Grid Tournament
+Run a cellular automaton style simulation on a 50x50 grid for 20 generations:
 ```bash
-cargo run -- --swiss --swiss-rounds 10
+cargo run -- --spatial --grid-size 50 --generations 20
+```
+
+### Custom Game Parameters
+Modify the payoff matrix and add an unknown end-game probability (discount factor):
+```bash
+cargo run -- --payoff-t 6 --payoff-r 4 --discount-factor 0.01
+```
+
+### Exporting Data and Reproducibility
+```bash
+cargo run -- --export-csv results.csv --seed 42
 ```
 
 ## Adding new strategies
 
-You can add new strategies in `src/strategies.rs`. Use the `FunctionalStrategy` for quick parametric generation:
-
-```rust
-strategies.push(Box::new(FunctionalStrategy {
-    name: "MyCustomStrategy".to_string(),
-    next_move_fn: |my_h, opp_h| {
-        // Your logic here
-        Action::Cooperate
-    },
-}));
-```
-
-## Scoring Table
-
-| Action 1  | Action 2  | Score 1 | Score 2 | Result                |
-|-----------|-----------|---------|---------|-----------------------|
-| Cooperate | Cooperate | 3       | 3       | Mutual Cooperation    |
-| Cooperate | Defect    | 0       | 5       | Sucker's Payoff       |
-| Defect    | Cooperate | 5       | 0       | Temptation to Defect  |
-| Defect    | Defect    | 1       | 1       | Punishment for Defect |
+You can quickly add new strategies in `src/strategies.rs` using `FunctionalStrategy`, or by implementing the `Strategy` trait for complex stateful logic.

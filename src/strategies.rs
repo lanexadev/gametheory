@@ -123,6 +123,45 @@ impl Strategy for TitForTatWithForgiveness {
     fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
 }
 
+#[derive(Clone, Default)]
+pub struct Handshake;
+impl Strategy for Handshake {
+    fn name(&self) -> &str { "Handshake" }
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
+        let turn = my_history.len();
+        match turn {
+            0 => Action::Cooperate,
+            1 => Action::Defect,
+            _ => {
+                if opponent_history.len() >= 2 && opponent_history[0] == Action::Cooperate && opponent_history[1] == Action::Defect {
+                    opponent_history.last().cloned().unwrap_or(Action::Cooperate) // Act like TitForTat
+                } else {
+                    Action::Defect // Punish outsiders
+                }
+            }
+        }
+    }
+    fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
+}
+
+#[derive(Clone, Default)]
+pub struct Statistical;
+impl Strategy for Statistical {
+    fn name(&self) -> &str { "Statistical" }
+    fn next_move(&self, _: &[Action], opponent_history: &[Action]) -> Action {
+        if opponent_history.is_empty() {
+            return Action::Cooperate;
+        }
+        let defect_count = opponent_history.iter().filter(|&&a| a == Action::Defect).count();
+        if defect_count as f64 / opponent_history.len() as f64 > 0.5 {
+            Action::Defect
+        } else {
+            Action::Cooperate
+        }
+    }
+    fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
+}
+
 pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
     let mut strategies = Vec::new();
 
@@ -172,6 +211,8 @@ pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
         Box::new(Pavlov::default()) as Box<dyn Strategy>,
         Box::new(Joss::default()) as Box<dyn Strategy>,
         Box::new(TitForTatWithForgiveness::default()) as Box<dyn Strategy>,
+        Box::new(Handshake::default()) as Box<dyn Strategy>,
+        Box::new(Statistical::default()) as Box<dyn Strategy>,
     ];
     all.extend(get_generative_strategies());
     all
