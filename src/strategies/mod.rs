@@ -19,14 +19,102 @@ pub mod omega_tft;
 pub mod soft_grudger;
 
 pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
-    // On ne met plus les singletons, on ne passe que par le générateur massif
     get_generative_strategies()
 }
 
 pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
     let mut strategies = Vec::new();
     
-    // --- FAMILLE TIT-FOR-TAT (100 variants) ---
+    // --- FAMILLE STOCHASTIQUE RÉACTIVE (100 variants) ---
+    // Ces stratégies jouent C avec probabilité P si l'autre a fait C, 
+    // et probabilité Q si l'autre a fait D. (Mémoire 1 stochastique)
+    for i in 1..=10 {
+        for j in 1..=10 {
+            let p = i as f64 / 10.0;
+            let q = j as f64 / 10.0;
+            let name = format!("Reactive (p={:.1}, q={:.1})", p, q);
+            strategies.push(Box::new(FunctionalStrategy {
+                name,
+                next_move_fn: move |_, opp_h| {
+                    let mut rng = rand::rng();
+                    match opp_h.last() {
+                        Some(Action::Cooperate) => if rng.random_bool(p) { Action::Cooperate } else { Action::Defect },
+                        Some(Action::Defect) => if rng.random_bool(q) { Action::Cooperate } else { Action::Defect },
+                        None => Action::Cooperate,
+                    }
+                },
+            }) as Box<dyn Strategy>);
+        }
+    }
+
+    // --- FAMILLE PATTERN MATCHER (50 variants) ---
+    // Tente de détecter si l'adversaire joue une séquence cyclique (ex: C-C-D)
+    for window in 2..=11 {
+        let name = format!("Pattern Matcher (W={})", window);
+        strategies.push(Box::new(FunctionalStrategy {
+            name,
+            next_move_fn: move |_, opp_h| {
+                if opp_h.len() < window * 2 { return Action::Cooperate; }
+                let last_pattern = &opp_h[opp_h.len()-window..];
+                let prev_pattern = &opp_h[opp_h.len()-window*2..opp_h.len()-window];
+                if last_pattern == prev_pattern {
+                    // Si un cycle est détecté, on prédit le prochain coup et on le contre
+                    let next_pred = last_pattern[0]; // Le cycle va recommencer
+                    if next_pred == Action::Cooperate { Action::Defect } else { Action::Defect }
+                } else {
+                    opp_h.last().cloned().unwrap_or(Action::Cooperate)
+                }
+            },
+        }) as Box<dyn Strategy>);
+    }
+
+    // --- FAMILLE ADAPTIVE TFT (50 variants) ---
+    // Ajuste son pardon dynamiquement selon le taux de coopération global
+    for target in 1..=50 {
+        let target_rate = target as f64 / 50.0;
+        let name = format!("Adaptive TFT (Target {:.0}%)", target_rate * 100.0);
+        strategies.push(Box::new(FunctionalStrategy {
+            name,
+            next_move_fn: move |_, opp_h| {
+                if opp_h.is_empty() { return Action::Cooperate; }
+                let current_rate = opp_h.iter().filter(|&&a| a == Action::Cooperate).count() as f64 / opp_h.len() as f64;
+                if current_rate < target_rate { Action::Defect } else { Action::Cooperate }
+            },
+        }) as Box<dyn Strategy>);
+    }
+
+    // --- FAMILLE BACKSTABBER (50 variants) ---
+    // Coopère jusqu'au tour N, puis trahit pour toujours
+    for n in (10..510).step_by(10) {
+        let name = format!("Backstabber (T={})", n);
+        strategies.push(Box::new(FunctionalStrategy {
+            name,
+            next_move_fn: move |my_h, _| {
+                if my_h.len() >= n { Action::Defect } else { Action::Cooperate }
+            },
+        }) as Box<dyn Strategy>);
+    }
+
+    // --- FAMILLE BULLY / PARADOXICAL (50 variants) ---
+    // L'inverse de TFT : Trahit quand l'autre coopère, coopère quand l'autre trahit
+    for i in 1..=50 {
+        let prob = i as f64 / 50.0;
+        let name = format!("Bully ({:.0}%)", prob * 100.0);
+        strategies.push(Box::new(FunctionalStrategy {
+            name,
+            next_move_fn: move |_, opp_h| {
+                let mut rng = rand::rng();
+                if !rng.random_bool(prob) { return Action::Defect; }
+                match opp_h.last() {
+                    Some(Action::Cooperate) => Action::Defect,
+                    Some(Action::Defect) => Action::Cooperate,
+                    None => Action::Cooperate,
+                }
+            },
+        }) as Box<dyn Strategy>);
+    }
+
+    // --- FAMILLES PRÉCÉDENTES (Ré-équilibrées) ---
     for i in 1..=100 {
         let prob = i as f64 / 100.0;
         let name = format!("Forgiving TFT ({:.1}%)", prob * 100.0);
@@ -44,8 +132,6 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         }) as Box<dyn Strategy>);
     }
 
-    // --- FAMILLE GRADUAL (50 variants) ---
-    // On varie la sévérité de la punition (combien de trahisons par affrontement)
     for mult in 1..=50 {
         let name = format!("Gradual (x{})", mult);
         strategies.push(Box::new(FunctionalStrategy {
@@ -68,8 +154,6 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         }) as Box<dyn Strategy>);
     }
 
-    // --- FAMILLE HANDSHAKE (50 variants) ---
-    // On varie les codes secrets
     for code_id in 1..=50 {
         let name = format!("Handshake (Code #{})", code_id);
         strategies.push(Box::new(FunctionalStrategy {
@@ -77,10 +161,8 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
             next_move_fn: move |my_h, opp_h| {
                 let turn = my_h.len();
                 if turn < 3 {
-                    // Code secret basé sur l'ID (ex: C, D, C ou D, C, D)
                     if (code_id + turn) % 2 == 0 { Action::Cooperate } else { Action::Defect }
                 } else {
-                    // Vérifie si l'autre a fait le même code
                     let mut match_code = true;
                     for t in 0..3 {
                         let expected = if (code_id + t) % 2 == 0 { Action::Cooperate } else { Action::Defect };
@@ -93,29 +175,6 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         }) as Box<dyn Strategy>);
     }
 
-    // --- FAMILLE PAVLOV / WIN-STAY (50 variants) ---
-    for i in 1..=50 {
-        let mistake_prob = i as f64 / 100.0;
-        let name = format!("Adaptive Pavlov ({:.0}%)", mistake_prob * 100.0);
-        strategies.push(Box::new(FunctionalStrategy {
-            name,
-            next_move_fn: move |my_h, opp_h| {
-                match (my_h.last(), opp_h.last()) {
-                    (None, _) => Action::Cooperate,
-                    (Some(&my), Some(&opp)) => {
-                        let mut move_choice = if my == opp { Action::Cooperate } else { Action::Defect };
-                        // Pavlov avec un peu de "réflexion" aléatoire
-                        let mut rng = rand::rng();
-                        if rng.random_bool(mistake_prob) { move_choice = move_choice.flip(); }
-                        move_choice
-                    }
-                    _ => Action::Cooperate,
-                }
-            },
-        }) as Box<dyn Strategy>);
-    }
-
-    // --- FAMILLE OMEGA / ANTI-RANDOM (50 variants) ---
     for threshold in 2..=51 {
         let name = format!("Omega-Detector (Thresh {})", threshold);
         strategies.push(Box::new(FunctionalStrategy {
@@ -132,8 +191,6 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         }) as Box<dyn Strategy>);
     }
 
-    // --- FAMILLE BIASED RANDOM (100 variants) ---
-    // On garde les prédateurs car ils sont essentiels pour tester la robustesse
     for i in 1..=100 {
         let prob = i as f64 / 100.0;
         let name = format!("Biased Random ({:.0}%)", prob * 100.0);
