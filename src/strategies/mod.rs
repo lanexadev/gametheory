@@ -12,6 +12,11 @@ pub mod suspicious_tit_for_tat;
 pub mod joss;
 pub mod tit_for_tat_with_forgiveness;
 pub mod statistical;
+pub mod alternator;
+pub mod detective;
+pub mod gradual;
+pub mod omega_tft;
+pub mod soft_grudger;
 
 pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
     let mut all: Vec<Box<dyn Strategy>> = vec![
@@ -26,6 +31,11 @@ pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
         Box::new(joss::Joss::default()),
         Box::new(tit_for_tat_with_forgiveness::TitForTatWithForgiveness::default()),
         Box::new(statistical::Statistical::default()),
+        Box::new(alternator::Alternator::default()),
+        Box::new(detective::Detective::default()),
+        Box::new(gradual::Gradual::default()),
+        Box::new(omega_tft::OmegaTFT::default()),
+        Box::new(soft_grudger::SoftGrudger::default()),
     ];
     
     all.extend(get_generative_strategies());
@@ -34,9 +44,9 @@ pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
 
 pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
     let mut strategies = Vec::new();
-    for i in 1..=10 {
-        let prob = i as f64 / 20.0;
-        let name = format!("Forgiving Tit For Tat ({:.0}%)", prob * 100.0);
+    for i in 1..=15 { // Increased from 10 to 15 variants
+        let prob = i as f64 / 30.0;
+        let name = format!("Forgiving Tit For Tat ({:.1}%)", prob * 100.0);
         strategies.push(Box::new(FunctionalStrategy {
             name,
             next_move_fn: move |_, opp_h| {
@@ -50,7 +60,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
             },
         }) as Box<dyn Strategy>);
     }
-    for n in 3..=6 {
+    for n in 2..=8 { // Wider range of N-Tats
         let name = format!("{}-Tats", n);
         strategies.push(Box::new(FunctionalStrategy {
             name,
