@@ -58,6 +58,10 @@ struct Args {
     payoff_p: i32,
     #[arg(long, default_value_t = 0)]
     payoff_s: i32,
+
+    /// Disable self-play in round-robin (Axelrod's original setup includes it).
+    #[arg(long)]
+    no_self_play: bool,
 }
 
 fn main() {
@@ -80,8 +84,13 @@ fn main() {
         seed: args.seed,
     };
 
+    if let Err(e) = game.validate() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+
     let strategies = strategies::get_all_strategies();
-    let mut results: HashMap<String, i32> = HashMap::new();
+    let results: HashMap<String, i32>;
 
     if args.spatial {
         println!("Running Spatial Tournament ({}x{} grid) for {} generations...", args.grid_size, args.grid_size, args.generations);
@@ -99,7 +108,9 @@ fn main() {
         return; // Spatial has different metric (population count, not score)
     }
 
-    let mut tournament = Tournament::new(strategies.clone(), game.clone());
+    let mut tournament = Tournament::new(strategies.clone(), game.clone())
+        .with_match_repetitions(args.repetitions)
+        .with_include_self_play(!args.no_self_play);
 
     if args.evolution {
         println!("Running Evolutionary Tournament ({} generations, {:.0}% reproduction)...", args.generations, args.reproduction_rate * 100.0);
@@ -120,13 +131,12 @@ fn main() {
         results = tournament.run_swiss(args.swiss_rounds);
         display_results(&results);
     } else {
-        println!("Running Round Robin...");
-        for _ in 0..args.repetitions {
-            let round_results = tournament.run_round_robin();
-            for (name, score) in round_results {
-                *results.entry(name).or_insert(0) += score;
-            }
-        }
+        println!(
+            "Running Round Robin (match_repetitions={}, self_play={})...",
+            args.repetitions,
+            !args.no_self_play
+        );
+        results = tournament.run_round_robin();
         display_results(&results);
     }
 

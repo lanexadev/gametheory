@@ -78,6 +78,26 @@ impl Default for Game {
 }
 
 impl Game {
+    /// Validates Axelrod's IPD payoff constraints: T > R > P > S and 2R > T + S.
+    /// The second constraint prevents an alternating C/D, D/C strategy from outperforming
+    /// mutual cooperation — without it, the game is no longer a proper iterated dilemma.
+    pub fn validate(&self) -> Result<(), String> {
+        let (t, r, p, s) = self.payoffs;
+        if !(t > r && r > p && p > s) {
+            return Err(format!(
+                "Axelrod payoffs must satisfy T > R > P > S (got T={}, R={}, P={}, S={})",
+                t, r, p, s
+            ));
+        }
+        if !(2 * r > t + s) {
+            return Err(format!(
+                "Axelrod payoffs must satisfy 2R > T + S (got R={}, T={}, S={}; otherwise alternating defection beats mutual cooperation)",
+                r, t, s
+            ));
+        }
+        Ok(())
+    }
+
     pub fn play(&self, s1: &dyn Strategy, s2: &dyn Strategy, match_seed: Option<u64>) -> (i32, i32, History) {
         let mut h1_actual = Vec::new();
         let mut h2_actual = Vec::new();
@@ -132,51 +152,88 @@ impl Game {
 pub struct Tournament {
     pub strategies: Vec<Box<dyn Strategy>>,
     pub game: Game,
+    /// Number of times each pair plays. Reduces noise variance; with seed,
+    /// each repetition uses a deterministically-derived offset seed.
+    pub match_repetitions: usize,
+    /// Whether each strategy plays itself. Default true (Axelrod's original setup).
+    pub include_self_play: bool,
 }
 
 impl Tournament {
     pub fn new(strategies: Vec<Box<dyn Strategy>>, game: Game) -> Self {
-        Self { strategies, game }
+        Self {
+            strategies,
+            game,
+            match_repetitions: 1,
+            include_self_play: true,
+        }
     }
 
-    /// Per-individual scores indexed by position in `self.strategies`.
-    /// This is the *fitness* used for evolutionary selection — never aggregate by name
-    /// because clones of the same strategy would compound their scores and mechanically
-    /// dominate selection regardless of intrinsic quality.
-    pub fn run_round_robin_per_individual(&self) -> Vec<i64> {
+    pub fn with_match_repetitions(mut self, n: usize) -> Self {
+        self.match_repetitions = n.max(1);
+        self
+    }
+
+    pub fn with_include_self_play(mut self, include: bool) -> Self {
+        self.include_self_play = include;
+        self
+    }
+
+    /// Per-individual fitness: average score per turn, averaged over `match_repetitions`.
+    /// This normalises away both noise variance (#5) and discount-factor duration variance (#7)
+    /// so that selection pressure tracks intrinsic quality rather than match length.
+    pub fn run_round_robin_per_individual(&self) -> Vec<f64> {
         let n = self.strategies.len();
+        let reps = self.match_repetitions.max(1);
+
         let mut pairs = Vec::new();
         for i in 0..n {
-            for j in i..n {
-                pairs.push((i, j));
+            let start_j = if self.include_self_play { i } else { i + 1 };
+            for j in start_j..n {
+                for rep in 0..reps {
+                    pairs.push((i, j, rep));
+                }
             }
         }
 
-        let results: Vec<_> = pairs.into_par_iter().map(|(i, j)| {
+        let results: Vec<_> = pairs.into_par_iter().map(|(i, j, rep)| {
             let s1 = &self.strategies[i];
             let s2 = &self.strategies[j];
-            let match_seed = self.game.seed.map(|s| s.wrapping_add((i * n + j) as u64));
-            let (sc1, sc2, _) = self.game.play(s1.as_ref(), s2.as_ref(), match_seed);
-            (i, j, sc1, sc2)
+            let match_seed = self.game.seed.map(|s| {
+                s.wrapping_add(((i * n + j) as u64).wrapping_mul(reps as u64))
+                    .wrapping_add(rep as u64)
+            });
+            let (sc1, sc2, history) = self.game.play(s1.as_ref(), s2.as_ref(), match_seed);
+            let turns = history.len().max(1) as f64;
+            (i, j, sc1 as f64 / turns, sc2 as f64 / turns)
         }).collect();
 
-        let mut scores = vec![0i64; n];
-        for (i, j, sc1, sc2) in results {
-            scores[i] += sc1 as i64;
+        let mut sums = vec![0f64; n];
+        let mut counts = vec![0u32; n];
+        for (i, j, sc1_per_turn, sc2_per_turn) in results {
+            sums[i] += sc1_per_turn;
+            counts[i] += 1;
             if i != j {
-                scores[j] += sc2 as i64;
+                sums[j] += sc2_per_turn;
+                counts[j] += 1;
             }
         }
-        scores
+
+        sums.into_iter().zip(counts).map(|(s, c)| {
+            if c > 0 { s / c as f64 } else { 0.0 }
+        }).collect()
     }
 
-    /// Aggregated scores by strategy name. Suitable for display/CSV export only.
-    /// Do NOT use for evolutionary selection — see `run_round_robin_per_individual`.
+    /// Aggregated by strategy name, reprojected to an `iterations`-turn equivalent
+    /// so display values stay comparable to legacy raw-sum runs. Display/CSV only —
+    /// evolutionary selection must use `run_round_robin_per_individual`.
     pub fn run_round_robin(&self) -> HashMap<String, i32> {
         let per_individual = self.run_round_robin_per_individual();
+        let scale = self.game.iterations as f64;
         let mut scores = HashMap::new();
-        for (i, score) in per_individual.into_iter().enumerate() {
-            *scores.entry(self.strategies[i].name().to_string()).or_insert(0i32) += score as i32;
+        for (i, score_per_turn) in per_individual.into_iter().enumerate() {
+            let projected = (score_per_turn * scale).round() as i32;
+            *scores.entry(self.strategies[i].name().to_string()).or_insert(0i32) += projected;
         }
         scores
     }
@@ -244,11 +301,11 @@ impl Tournament {
             // population gets ~N× the score mechanically and outcompetes minorities
             // regardless of intrinsic quality.
             let per_individual = self.run_round_robin_per_individual();
-            let mut ranked: Vec<(usize, i64)> = per_individual
+            let mut ranked: Vec<(usize, f64)> = per_individual
                 .into_iter()
                 .enumerate()
                 .collect();
-            ranked.sort_by(|a, b| b.1.cmp(&a.1));
+            ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
             let pop_size = self.strategies.len();
             let keep_count = (pop_size as f64 * (1.0 - reproduction_rate)) as usize;
