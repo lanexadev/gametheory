@@ -22,9 +22,56 @@ impl Action {
 
 pub type History = Vec<(Action, Action)>;
 
+/// Per-match scratchpad threaded through `next_move_stateful` so strategies
+/// whose decision is a function of accumulated history can update their
+/// state in O(1) per turn instead of rescanning the whole opponent history.
+/// Strategies that don't need scratch use the default `None` and the default
+/// `next_move_stateful` impl, which delegates to the stateless `next_move`.
+#[derive(Clone, Default, Debug)]
+pub enum StrategyScratch {
+    #[default]
+    None,
+    /// Shared shape used by the punish/cooldown state machine of both
+    /// `Gradual` (standalone) and the `Gradual (xN)` family. The strategy
+    /// owns the transition rule; this scratch only stores the running
+    /// counters and how many opponent-history entries we've already folded
+    /// in.
+    Gradual {
+        opp_defects: usize,
+        p_left: usize,
+        c_left: usize,
+        processed: usize,
+    },
+    /// Used by `OmegaTFT` (standalone) and the `Omega-Detector (Thresh N)`
+    /// family. Counts the number of (my=C, opp=D) transitions seen so far
+    /// and how many history pairs we've already folded in.
+    OmegaDetector {
+        inconsistencies: usize,
+        processed: usize,
+    },
+}
+
 pub trait Strategy: Send + Sync {
     fn name(&self) -> &str;
     fn next_move(&self, my_history: &[Action], opponent_history: &[Action], rng: &mut dyn RngCore) -> Action;
+
+    /// Allocate the per-match scratch for this strategy. Default: no scratch.
+    /// Stateful strategies override this to seed their counters.
+    fn init_scratch(&self) -> StrategyScratch { StrategyScratch::None }
+
+    /// Stateful next-move call used by the engine. The default impl ignores
+    /// the scratch and delegates to `next_move`, which keeps every existing
+    /// strategy compatible without modification.
+    fn next_move_stateful(
+        &self,
+        my_history: &[Action],
+        opponent_history: &[Action],
+        _scratch: &mut StrategyScratch,
+        rng: &mut dyn RngCore,
+    ) -> Action {
+        self.next_move(my_history, opponent_history, rng)
+    }
+
     fn clone_box(&self) -> Box<dyn Strategy>;
 }
 
@@ -99,27 +146,41 @@ impl Game {
     }
 
     pub fn play(&self, s1: &dyn Strategy, s2: &dyn Strategy, match_seed: Option<u64>) -> (i32, i32, History) {
-        let mut h1_actual = Vec::new();
-        let mut h2_actual = Vec::new();
-        let mut h1_perceived_by_2 = Vec::new();
-        let mut h2_perceived_by_1 = Vec::new();
-        
+        // Pre-size to avoid log(N) reallocations during a 200-1000 turn match.
+        // When neither noise source is active, the perceived histories are
+        // value-identical to the actual histories — skip allocating and
+        // pushing to those two vectors, and pass the actuals as opponent
+        // history. The `random_bool` calls below are still executed in that
+        // case to keep the RNG sequence (and therefore reproducibility)
+        // identical to the legacy code path.
+        let no_noise = self.action_noise == 0.0 && self.perception_noise == 0.0;
+        let cap = self.iterations;
+        let mut h1_actual: Vec<Action> = Vec::with_capacity(cap);
+        let mut h2_actual: Vec<Action> = Vec::with_capacity(cap);
+        let mut h1_perceived_by_2: Vec<Action> = if no_noise { Vec::new() } else { Vec::with_capacity(cap) };
+        let mut h2_perceived_by_1: Vec<Action> = if no_noise { Vec::new() } else { Vec::with_capacity(cap) };
+
         let mut score1 = 0;
         let mut score2 = 0;
-        let mut history = Vec::new();
+        let mut history = Vec::with_capacity(cap);
 
         let mut rng = match match_seed.or(self.seed) {
             Some(s) => ChaCha8Rng::seed_from_u64(s),
             None => ChaCha8Rng::from_os_rng(),
         };
 
+        let mut scratch1 = s1.init_scratch();
+        let mut scratch2 = s2.init_scratch();
+
         for _ in 0..self.iterations {
             if self.discount_factor > 0.0 && rng.random_bool(self.discount_factor) {
                 break;
             }
 
-            let m1 = s1.next_move(&h1_actual, &h2_perceived_by_1, &mut rng);
-            let m2 = s2.next_move(&h2_actual, &h1_perceived_by_2, &mut rng);
+            let opp_for_1: &[Action] = if no_noise { &h2_actual } else { &h2_perceived_by_1 };
+            let opp_for_2: &[Action] = if no_noise { &h1_actual } else { &h1_perceived_by_2 };
+            let m1 = s1.next_move_stateful(&h1_actual, opp_for_1, &mut scratch1, &mut rng);
+            let m2 = s2.next_move_stateful(&h2_actual, opp_for_2, &mut scratch2, &mut rng);
 
             let m1_actual = if rng.random_bool(self.action_noise) { m1.flip() } else { m1 };
             let m2_actual = if rng.random_bool(self.action_noise) { m2.flip() } else { m2 };
@@ -137,11 +198,13 @@ impl Game {
 
             score1 += p1;
             score2 += p2;
-            
+
             h1_actual.push(m1_actual);
             h2_actual.push(m2_actual);
-            h1_perceived_by_2.push(m1_perceived);
-            h2_perceived_by_1.push(m2_perceived);
+            if !no_noise {
+                h1_perceived_by_2.push(m1_perceived);
+                h2_perceived_by_1.push(m2_perceived);
+            }
             history.push((m1_actual, m2_actual));
         }
 
@@ -337,83 +400,89 @@ impl Tournament {
 }
 
 pub struct SpatialTournament {
-    pub grid: Vec<Vec<Box<dyn Strategy>>>,
+    /// Flat row-major grid of indices into `pool`. Storing `usize` (8 bytes)
+    /// instead of `Box<dyn Strategy>` (16 bytes + heap) makes the per-step
+    /// "copy best neighbour" pass a trivial memcpy and lets us share the
+    /// underlying strategy objects across cells without `clone_box()`.
+    grid: Vec<usize>,
+    width: usize,
+    height: usize,
+    /// Deduplicated strategy templates. Cells reference these by index.
+    pool: Vec<Box<dyn Strategy>>,
     pub game: Game,
 }
 
 impl SpatialTournament {
     pub fn new(width: usize, height: usize, strategies: Vec<Box<dyn Strategy>>, game: Game) -> Self {
         let mut rng = ChaCha8Rng::from_os_rng();
-        let mut grid = Vec::new();
-        for _ in 0..height {
-            let mut row = Vec::new();
-            for _ in 0..width {
-                let idx = rng.random_range(0..strategies.len());
-                row.push(strategies[idx].clone());
-            }
-            grid.push(row);
+        let pool = strategies;
+        let mut grid = Vec::with_capacity(width * height);
+        for _ in 0..(width * height) {
+            grid.push(rng.random_range(0..pool.len()));
         }
-        Self { grid, game }
+        Self { grid, width, height, pool, game }
+    }
+
+    #[inline]
+    fn cell(&self, y: usize, x: usize) -> usize {
+        self.grid[y * self.width + x]
     }
 
     pub fn step(&mut self) {
-        let height = self.grid.len();
-        let width = self.grid[0].len();
-        
-        // Calculate scores for each cell
-        let mut scores = vec![vec![0; width]; height];
-        
-        for y in 0..height {
-            for x in 0..width {
-                let s1 = &self.grid[y][x];
-                let mut cell_score = 0;
-                
-                // Moore neighborhood (8 neighbors)
-                for dy in -1..=1 {
-                    for dx in -1..=1 {
-                        if dy == 0 && dx == 0 { continue; }
-                        let ny = (y as isize + dy).rem_euclid(height as isize) as usize;
-                        let nx = (x as isize + dx).rem_euclid(width as isize) as usize;
-                        let s2 = &self.grid[ny][nx];
-                        let (sc1, _, _) = self.game.play(s1.as_ref(), s2.as_ref(), None);
-                        cell_score += sc1;
+        let width = self.width;
+        let height = self.height;
+        let total = width * height;
+
+        // Score pass: each cell's payoff is independent, parallelise over the
+        // flat index space. Reading `self.grid` and `self.pool` by shared
+        // reference is safe because `Box<dyn Strategy>` is `Send + Sync`.
+        let scores: Vec<i32> = (0..total).into_par_iter().map(|idx| {
+            let y = idx / width;
+            let x = idx % width;
+            let s1 = self.pool[self.cell(y, x)].as_ref();
+            let mut cell_score = 0;
+            for dy in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    if dy == 0 && dx == 0 { continue; }
+                    let ny = (y as isize + dy as isize).rem_euclid(height as isize) as usize;
+                    let nx = (x as isize + dx as isize).rem_euclid(width as isize) as usize;
+                    let s2 = self.pool[self.cell(ny, nx)].as_ref();
+                    let (sc1, _, _) = self.game.play(s1, s2, None);
+                    cell_score += sc1;
+                }
+            }
+            cell_score
+        }).collect();
+
+        // Update pass: each cell adopts the highest-scoring Moore neighbour
+        // (or stays put). Independent per cell, parallelisable, and we copy
+        // a single `usize` instead of cloning a strategy box.
+        let new_grid: Vec<usize> = (0..total).into_par_iter().map(|idx| {
+            let y = idx / width;
+            let x = idx % width;
+            let mut best_score = scores[idx];
+            let mut best_idx = self.cell(y, x);
+            for dy in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    let ny = (y as isize + dy as isize).rem_euclid(height as isize) as usize;
+                    let nx = (x as isize + dx as isize).rem_euclid(width as isize) as usize;
+                    let nidx = ny * width + nx;
+                    if scores[nidx] > best_score {
+                        best_score = scores[nidx];
+                        best_idx = self.cell(ny, nx);
                     }
                 }
-                scores[y][x] = cell_score;
             }
-        }
-        
-        // Update grid
-        let mut new_grid = Vec::new();
-        for y in 0..height {
-            let mut row = Vec::new();
-            for x in 0..width {
-                let mut best_score = scores[y][x];
-                let mut best_strat = self.grid[y][x].clone();
-                
-                for dy in -1..=1 {
-                    for dx in -1..=1 {
-                        let ny = (y as isize + dy).rem_euclid(height as isize) as usize;
-                        let nx = (x as isize + dx).rem_euclid(width as isize) as usize;
-                        if scores[ny][nx] > best_score {
-                            best_score = scores[ny][nx];
-                            best_strat = self.grid[ny][nx].clone();
-                        }
-                    }
-                }
-                row.push(best_strat);
-            }
-            new_grid.push(row);
-        }
+            best_idx
+        }).collect();
+
         self.grid = new_grid;
     }
-    
+
     pub fn get_population_counts(&self) -> HashMap<String, usize> {
         let mut counts = HashMap::new();
-        for row in &self.grid {
-            for cell in row {
-                *counts.entry(cell.name().to_string()).or_insert(0) += 1;
-            }
+        for &idx in &self.grid {
+            *counts.entry(self.pool[idx].name().to_string()).or_insert(0) += 1;
         }
         counts
     }

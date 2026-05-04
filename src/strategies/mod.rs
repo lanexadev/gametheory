@@ -1,4 +1,4 @@
-use crate::{Action, Strategy, FunctionalStrategy};
+use crate::{Action, Strategy, StrategyScratch, FunctionalStrategy};
 use rand::Rng;
 use rand::RngCore;
 
@@ -18,6 +18,129 @@ pub mod detective;
 pub mod gradual;
 pub mod omega_tft;
 pub mod soft_grudger;
+
+/// Parameterised Gradual variant — punish/cooldown state machine where the
+/// punishment length scales with `mult`. Carries scratch so the per-turn
+/// update is O(1) instead of O(turn).
+#[derive(Clone)]
+struct GradualFamily {
+    name: String,
+    mult: usize,
+}
+
+impl GradualFamily {
+    #[inline]
+    fn step(opp_defects: &mut usize, p_left: &mut usize, c_left: &mut usize, mult: usize, act: Action) {
+        if *p_left > 0 {
+            *p_left -= 1;
+            if *p_left == 0 { *c_left = 2; }
+        } else if *c_left > 0 {
+            *c_left -= 1;
+        } else if act == Action::Defect {
+            *opp_defects += 1;
+            *p_left = (*opp_defects * mult / 10) + 1;
+            *c_left = 2;
+        }
+    }
+}
+
+impl Strategy for GradualFamily {
+    fn name(&self) -> &str { &self.name }
+
+    fn next_move(&self, _: &[Action], opp_h: &[Action], _: &mut dyn RngCore) -> Action {
+        let mut opp_defects = 0;
+        let mut p_left = 0;
+        let mut c_left = 0;
+        for &act in opp_h {
+            Self::step(&mut opp_defects, &mut p_left, &mut c_left, self.mult, act);
+        }
+        if p_left > 0 { Action::Defect } else { Action::Cooperate }
+    }
+
+    fn init_scratch(&self) -> StrategyScratch {
+        StrategyScratch::Gradual { opp_defects: 0, p_left: 0, c_left: 0, processed: 0 }
+    }
+
+    fn next_move_stateful(
+        &self,
+        my_history: &[Action],
+        opp_h: &[Action],
+        scratch: &mut StrategyScratch,
+        rng: &mut dyn RngCore,
+    ) -> Action {
+        if let StrategyScratch::Gradual { opp_defects, p_left, c_left, processed } = scratch {
+            while *processed < opp_h.len() {
+                Self::step(opp_defects, p_left, c_left, self.mult, opp_h[*processed]);
+                *processed += 1;
+            }
+            if *p_left > 0 { Action::Defect } else { Action::Cooperate }
+        } else {
+            self.next_move(my_history, opp_h, rng)
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
+}
+
+/// Parameterised Omega-Detector — counts (my=C, opp=D) inconsistencies and
+/// switches to defect once the running count exceeds `threshold/2`. Scratch
+/// keeps the running count across turns.
+#[derive(Clone)]
+struct OmegaDetectorFamily {
+    name: String,
+    threshold: usize,
+}
+
+impl Strategy for OmegaDetectorFamily {
+    fn name(&self) -> &str { &self.name }
+
+    fn next_move(&self, my_h: &[Action], opp_h: &[Action], _: &mut dyn RngCore) -> Action {
+        if opp_h.len() < self.threshold {
+            return opp_h.last().cloned().unwrap_or(Action::Cooperate);
+        }
+        let mut inconsistencies = 0;
+        for i in 1..opp_h.len() {
+            if my_h[i-1] == Action::Cooperate && opp_h[i] == Action::Defect {
+                inconsistencies += 1;
+            }
+        }
+        if inconsistencies > self.threshold / 2 { Action::Defect }
+        else { opp_h.last().cloned().unwrap_or(Action::Cooperate) }
+    }
+
+    fn init_scratch(&self) -> StrategyScratch {
+        StrategyScratch::OmegaDetector { inconsistencies: 0, processed: 0 }
+    }
+
+    fn next_move_stateful(
+        &self,
+        my_h: &[Action],
+        opp_h: &[Action],
+        scratch: &mut StrategyScratch,
+        rng: &mut dyn RngCore,
+    ) -> Action {
+        if let StrategyScratch::OmegaDetector { inconsistencies, processed } = scratch {
+            let mut i = (*processed).max(1);
+            while i < opp_h.len() {
+                if my_h[i-1] == Action::Cooperate && opp_h[i] == Action::Defect {
+                    *inconsistencies += 1;
+                }
+                i += 1;
+            }
+            *processed = opp_h.len();
+
+            if opp_h.len() < self.threshold {
+                return opp_h.last().cloned().unwrap_or(Action::Cooperate);
+            }
+            if *inconsistencies > self.threshold / 2 { Action::Defect }
+            else { opp_h.last().cloned().unwrap_or(Action::Cooperate) }
+        } else {
+            self.next_move(my_h, opp_h, rng)
+        }
+    }
+
+    fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
+}
 
 pub fn get_all_strategies() -> Vec<Box<dyn Strategy>> {
     get_generative_strategies()
@@ -134,24 +257,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
 
     for mult in 1..=50 {
         let name = format!("Gradual (x{})", mult);
-        strategies.push(Box::new(FunctionalStrategy {
-            name,
-            next_move_fn: move |_: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
-                let mut opp_defects = 0;
-                let mut p_left = 0;
-                let mut c_left = 0;
-                for &act in opp_h {
-                    if p_left > 0 { p_left -= 1; if p_left == 0 { c_left = 2; } }
-                    else if c_left > 0 { c_left -= 1; }
-                    else if act == Action::Defect {
-                        opp_defects += 1;
-                        p_left = (opp_defects * mult / 10) + 1;
-                        c_left = 2;
-                    }
-                }
-                if p_left > 0 { Action::Defect } else { Action::Cooperate }
-            },
-        }) as Box<dyn Strategy>);
+        strategies.push(Box::new(GradualFamily { name, mult }) as Box<dyn Strategy>);
     }
 
     for code_id in 1..=50 {
@@ -177,18 +283,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
 
     for threshold in 2..=51 {
         let name = format!("Omega-Detector (Thresh {})", threshold);
-        strategies.push(Box::new(FunctionalStrategy {
-            name,
-            next_move_fn: move |my_h: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
-                if opp_h.len() < threshold { return opp_h.last().cloned().unwrap_or(Action::Cooperate); }
-                let mut inconsistencies = 0;
-                for i in 1..opp_h.len() {
-                    if my_h[i-1] == Action::Cooperate && opp_h[i] == Action::Defect { inconsistencies += 1; }
-                }
-                if inconsistencies > threshold / 2 { Action::Defect }
-                else { opp_h.last().cloned().unwrap_or(Action::Cooperate) }
-            },
-        }) as Box<dyn Strategy>);
+        strategies.push(Box::new(OmegaDetectorFamily { name, threshold }) as Box<dyn Strategy>);
     }
 
     for i in 1..=100 {
