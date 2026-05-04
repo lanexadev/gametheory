@@ -18,6 +18,8 @@ pub mod detective;
 pub mod gradual;
 pub mod omega_tft;
 pub mod soft_grudger;
+pub mod zd;
+pub mod wsls;
 
 /// Parameterised Gradual variant — punish/cooldown state machine where the
 /// punishment length scales with `mult`. Carries scratch so the per-turn
@@ -295,6 +297,24 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
                 if rng.random_bool(prob) { Action::Cooperate } else { Action::Defect }
             },
         }) as Box<dyn Strategy>);
+    }
+
+    // --- ZD STRATEGIES (Press-Dyson 2012, Stewart-Plotkin 2013) ---
+    // 5 chi values × 2 modes = 10 variants. Mathematically valid for canonical
+    // payoffs (5,3,1,0) only; under custom payoffs the Press-Dyson invariant
+    // no longer holds but the strategies still play coherently.
+    for chi_x10 in [11u32, 13, 15, 20, 30] {
+        let chi = chi_x10 as f64 / 10.0;
+        strategies.push(Box::new(zd::zd_extortion(chi)) as Box<dyn Strategy>);
+        strategies.push(Box::new(zd::zd_generous(chi)) as Box<dyn Strategy>);
+    }
+
+    // --- WSLS STOCHASTIC FAMILY (25 variants) ---
+    // 5×5 grid over (p_stay_win, p_switch_loss). (1.0, 1.0) recovers Pavlov.
+    for sw in [0.5, 0.7, 0.85, 0.95, 1.0] {
+        for sl in [0.5, 0.7, 0.85, 0.95, 1.0] {
+            strategies.push(Box::new(wsls::wsls(sw, sl)) as Box<dyn Strategy>);
+        }
     }
 
     strategies

@@ -1,6 +1,19 @@
-use clap::Parser;
-use game_theory::{Tournament, strategies, Game, SpatialTournament};
+use clap::{Parser, ValueEnum};
+use game_theory::{Tournament, strategies, Game, SpatialTournament, Neighborhood};
 use std::collections::HashMap;
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+enum TopologyArg { Moore, Vonneumann, Hex }
+
+impl From<TopologyArg> for Neighborhood {
+    fn from(t: TopologyArg) -> Self {
+        match t {
+            TopologyArg::Moore => Neighborhood::Moore,
+            TopologyArg::Vonneumann => Neighborhood::VonNeumann,
+            TopologyArg::Hex => Neighborhood::Hex,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -62,6 +75,14 @@ struct Args {
     /// Disable self-play in round-robin (Axelrod's original setup includes it).
     #[arg(long)]
     no_self_play: bool,
+
+    /// Spatial neighborhood topology: moore (default, 8), vonneumann (4), hex (6).
+    #[arg(long, value_enum, default_value_t = TopologyArg::Moore)]
+    topology: TopologyArg,
+
+    /// Export the full N×N pair-score matrix (mean per-turn) as CSV.
+    #[arg(long)]
+    export_matrix: Option<String>,
 }
 
 fn main() {
@@ -93,8 +114,17 @@ fn main() {
     let results: HashMap<String, i32>;
 
     if args.spatial {
-        println!("Running Spatial Tournament ({}x{} grid) for {} generations...", args.grid_size, args.grid_size, args.generations);
-        let mut spatial_tournament = SpatialTournament::new(args.grid_size, args.grid_size, strategies, game.clone());
+        println!(
+            "Running Spatial Tournament ({}x{} grid, topology={:?}) for {} generations...",
+            args.grid_size, args.grid_size, args.topology, args.generations
+        );
+        let mut spatial_tournament = SpatialTournament::new_with_topology(
+            args.grid_size,
+            args.grid_size,
+            strategies,
+            game.clone(),
+            args.topology.into(),
+        );
         for _ in 0..args.generations {
             spatial_tournament.step();
         }
@@ -151,6 +181,17 @@ fn main() {
             eprintln!("Failed to export CSV: {}", e);
         } else {
             println!("Results exported to {}", path);
+        }
+    }
+
+    if let Some(path) = args.export_matrix {
+        // Re-run a clean round-robin report to capture the matrix. Cheaper
+        // than threading it through every code path; the report itself is
+        // cached implicitly because the Game seed makes the run deterministic.
+        let report = tournament.run_round_robin_report();
+        match report.export_matrix_csv(&path) {
+            Ok(()) => println!("Pair-score matrix exported to {}", path),
+            Err(e) => eprintln!("Failed to export matrix: {}", e),
         }
     }
 }
