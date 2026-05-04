@@ -2,12 +2,13 @@
 /// It plays Tit For Tat but monitors if the opponent's behavior seems inconsistent 
 /// (defects even when rewarded). If it suspects a random opponent, it switches to Always Defect.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct OmegaTFT;
 impl Strategy for OmegaTFT {
     fn name(&self) -> &str { "Omega Tit For Tat" }
-    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         if opponent_history.len() < 10 {
             return opponent_history.last().cloned().unwrap_or(Action::Cooperate);
         }

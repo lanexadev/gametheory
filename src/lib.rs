@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, RngCore, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 
@@ -24,21 +24,21 @@ pub type History = Vec<(Action, Action)>;
 
 pub trait Strategy: Send + Sync {
     fn name(&self) -> &str;
-    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action;
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action], rng: &mut dyn RngCore) -> Action;
     fn clone_box(&self) -> Box<dyn Strategy>;
 }
 
 pub struct FunctionalStrategy<F>
-where F: Fn(&[Action], &[Action]) -> Action + Send + Sync + Clone + 'static {
+where F: Fn(&[Action], &[Action], &mut dyn RngCore) -> Action + Send + Sync + Clone + 'static {
     pub name: String,
     pub next_move_fn: F,
 }
 
 impl<F> Strategy for FunctionalStrategy<F>
-where F: Fn(&[Action], &[Action]) -> Action + Send + Sync + Clone + 'static {
+where F: Fn(&[Action], &[Action], &mut dyn RngCore) -> Action + Send + Sync + Clone + 'static {
     fn name(&self) -> &str { &self.name }
-    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
-        (self.next_move_fn)(my_history, opponent_history)
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action], rng: &mut dyn RngCore) -> Action {
+        (self.next_move_fn)(my_history, opponent_history, rng)
     }
     fn clone_box(&self) -> Box<dyn Strategy> {
         Box::new(Self {
@@ -98,8 +98,8 @@ impl Game {
                 break;
             }
 
-            let m1 = s1.next_move(&h1_actual, &h2_perceived_by_1);
-            let m2 = s2.next_move(&h2_actual, &h1_perceived_by_2);
+            let m1 = s1.next_move(&h1_actual, &h2_perceived_by_1, &mut rng);
+            let m2 = s2.next_move(&h2_actual, &h1_perceived_by_2, &mut rng);
 
             let m1_actual = if rng.random_bool(self.action_noise) { m1.flip() } else { m1 };
             let m2_actual = if rng.random_bool(self.action_noise) { m2.flip() } else { m2 };
@@ -139,7 +139,11 @@ impl Tournament {
         Self { strategies, game }
     }
 
-    pub fn run_round_robin(&self) -> HashMap<String, i32> {
+    /// Per-individual scores indexed by position in `self.strategies`.
+    /// This is the *fitness* used for evolutionary selection — never aggregate by name
+    /// because clones of the same strategy would compound their scores and mechanically
+    /// dominate selection regardless of intrinsic quality.
+    pub fn run_round_robin_per_individual(&self) -> Vec<i64> {
         let n = self.strategies.len();
         let mut pairs = Vec::new();
         for i in 0..n {
@@ -156,18 +160,23 @@ impl Tournament {
             (i, j, sc1, sc2)
         }).collect();
 
-        let mut scores = HashMap::new();
-        for s in &self.strategies {
-            scores.insert(s.name().to_string(), 0);
-        }
-
+        let mut scores = vec![0i64; n];
         for (i, j, sc1, sc2) in results {
-            let name1 = self.strategies[i].name();
-            let name2 = self.strategies[j].name();
-            *scores.get_mut(name1).unwrap() += sc1;
+            scores[i] += sc1 as i64;
             if i != j {
-                *scores.get_mut(name2).unwrap() += sc2;
+                scores[j] += sc2 as i64;
             }
+        }
+        scores
+    }
+
+    /// Aggregated scores by strategy name. Suitable for display/CSV export only.
+    /// Do NOT use for evolutionary selection — see `run_round_robin_per_individual`.
+    pub fn run_round_robin(&self) -> HashMap<String, i32> {
+        let per_individual = self.run_round_robin_per_individual();
+        let mut scores = HashMap::new();
+        for (i, score) in per_individual.into_iter().enumerate() {
+            *scores.entry(self.strategies[i].name().to_string()).or_insert(0i32) += score as i32;
         }
         scores
     }
@@ -222,40 +231,44 @@ impl Tournament {
 
     pub fn run_evolution(&mut self, generations: usize, reproduction_rate: f64) -> (HashMap<String, i32>, Vec<HashMap<String, usize>>) {
         let mut history = Vec::new();
-        
+
         for _ in 0..generations {
-            // Record current population counts
             let mut counts = HashMap::new();
             for s in &self.strategies {
                 *counts.entry(s.name().to_string()).or_insert(0) += 1;
             }
             history.push(counts);
 
-            let scores = self.run_round_robin();
-            let mut sorted_scores: Vec<_> = scores.into_iter().collect();
-            sorted_scores.sort_by(|a, b| b.1.cmp(&a.1));
-            
+            // Per-individual fitness: each clone is judged on its own matches, not on the
+            // sum of every clone's score. Without this, a strategy present N times in the
+            // population gets ~N× the score mechanically and outcompetes minorities
+            // regardless of intrinsic quality.
+            let per_individual = self.run_round_robin_per_individual();
+            let mut ranked: Vec<(usize, i64)> = per_individual
+                .into_iter()
+                .enumerate()
+                .collect();
+            ranked.sort_by(|a, b| b.1.cmp(&a.1));
+
             let pop_size = self.strategies.len();
             let keep_count = (pop_size as f64 * (1.0 - reproduction_rate)) as usize;
-            
-            let mut next_gen = Vec::new();
-            for i in 0..keep_count {
-                let name = &sorted_scores[i].0;
-                let strat = self.strategies.iter().find(|s| s.name() == name).unwrap();
-                next_gen.push(strat.clone());
+            let keep_count = keep_count.max(1).min(pop_size);
+
+            let mut next_gen = Vec::with_capacity(pop_size);
+            for k in 0..keep_count {
+                let idx = ranked[k].0;
+                next_gen.push(self.strategies[idx].clone());
             }
-            
+
             let replace_count = pop_size - keep_count;
-            for i in 0..replace_count {
-                let name = &sorted_scores[i % keep_count.max(1)].0;
-                let strat = self.strategies.iter().find(|s| s.name() == name).unwrap();
-                next_gen.push(strat.clone());
+            for k in 0..replace_count {
+                let idx = ranked[k % keep_count].0;
+                next_gen.push(self.strategies[idx].clone());
             }
-            
+
             self.strategies = next_gen;
         }
-        
-        // Final counts for last gen
+
         let mut final_counts = HashMap::new();
         for s in &self.strategies {
             *final_counts.entry(s.name().to_string()).or_insert(0) += 1;

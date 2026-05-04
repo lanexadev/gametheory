@@ -2,12 +2,13 @@
 /// If the opponent never defects during this phase, it defects forever to exploit them.
 /// If the opponent defects, it switches to Tit For Tat.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct Detective;
 impl Strategy for Detective {
     fn name(&self) -> &str { "Detective" }
-    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         let turn = my_history.len();
         let opening = [Action::Cooperate, Action::Defect, Action::Cooperate, Action::Cooperate];
         

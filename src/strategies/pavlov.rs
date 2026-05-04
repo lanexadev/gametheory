@@ -1,12 +1,13 @@
-/// Pavlov (Win-Stay, Lose-Shift): Cooperates if it and the opponent played the same move last turn, 
+/// Pavlov (Win-Stay, Lose-Shift): Cooperates if it and the opponent played the same move last turn,
 /// otherwise it switches its behavior.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct Pavlov;
 impl Strategy for Pavlov {
     fn name(&self) -> &str { "Pavlov (Win-Stay, Lose-Shift)" }
-    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         match (my_history.last(), opponent_history.last()) {
             (None, _) => Action::Cooperate,
             (Some(&my), Some(&opp)) => {

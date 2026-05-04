@@ -1,6 +1,7 @@
 /// Gradual: Punishes defection with an increasing number of defections.
 /// First defection = 1 D, second = 2 D, etc. After each punishment, it cooperates twice.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct Gradual {
@@ -11,7 +12,7 @@ pub struct Gradual {
 
 impl Strategy for Gradual {
     fn name(&self) -> &str { "Gradual" }
-    fn next_move(&self, _: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, _: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         // This is a stateful strategy, we need to recalculate state from history
         // since the engine handles strategies as clones or fresh instances.
         let mut opp_defects = 0;

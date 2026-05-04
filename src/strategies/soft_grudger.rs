@@ -1,12 +1,13 @@
 /// Soft Grudger: Cooperates until the opponent defects. 
 /// Then punishes with [D, D, D, D, C, C]. More forgiving than the original Grudger.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct SoftGrudger;
 impl Strategy for SoftGrudger {
     fn name(&self) -> &str { "Soft Grudger" }
-    fn next_move(&self, _: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, _: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         let mut last_defector_idx = None;
         
         for (i, &act) in opponent_history.iter().enumerate() {

@@ -1,12 +1,13 @@
-/// Tit For Two Tats: A more forgiving version of Tit For Tat. 
+/// Tit For Two Tats: A more forgiving version of Tit For Tat.
 /// Only defects if the opponent has defected in both of the last two turns.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct TitForTwoTats;
 impl Strategy for TitForTwoTats {
     fn name(&self) -> &str { "Tit For Two Tats" }
-    fn next_move(&self, _: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, _: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         if opponent_history.len() < 2 {
             return Action::Cooperate;
         }

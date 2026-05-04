@@ -1,12 +1,13 @@
-/// Grudger: Cooperates until the opponent defects once, then defects for the rest of the game. 
+/// Grudger: Cooperates until the opponent defects once, then defects for the rest of the game.
 /// Extremely unforgiving.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct Grudger;
 impl Strategy for Grudger {
     fn name(&self) -> &str { "Grudger" }
-    fn next_move(&self, _: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, _: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         let has_defected = opponent_history.iter().any(|&a| a == Action::Defect);
         if has_defected { Action::Defect } else { Action::Cooperate }
     }

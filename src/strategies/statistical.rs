@@ -1,12 +1,13 @@
-/// Statistical: Analyzes the opponent's historical behavior. 
+/// Statistical: Analyzes the opponent's historical behavior.
 /// Defects if the opponent's total defection rate is greater than 50%.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct Statistical;
 impl Strategy for Statistical {
     fn name(&self) -> &str { "Statistical" }
-    fn next_move(&self, _: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, _: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         if opponent_history.is_empty() {
             return Action::Cooperate;
         }

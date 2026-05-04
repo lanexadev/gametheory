@@ -1,12 +1,13 @@
-/// Handshake: A group-recognition strategy. Starts with [Cooperate, Defect]. 
+/// Handshake: A group-recognition strategy. Starts with [Cooperate, Defect].
 /// If the opponent matches this sequence, it cooperates forever; otherwise, it defects forever.
 use crate::{Action, Strategy};
+use rand::RngCore;
 
 #[derive(Clone, Default)]
 pub struct Handshake;
 impl Strategy for Handshake {
     fn name(&self) -> &str { "Handshake" }
-    fn next_move(&self, my_history: &[Action], opponent_history: &[Action]) -> Action {
+    fn next_move(&self, my_history: &[Action], opponent_history: &[Action], _: &mut dyn RngCore) -> Action {
         let turn = my_history.len();
         match turn {
             0 => Action::Cooperate,

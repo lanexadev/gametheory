@@ -1,5 +1,6 @@
 use crate::{Action, Strategy, FunctionalStrategy};
 use rand::Rng;
+use rand::RngCore;
 
 pub mod always_cooperate;
 pub mod always_defect;
@@ -26,7 +27,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
     let mut strategies = Vec::new();
     
     // --- FAMILLE STOCHASTIQUE RÉACTIVE (100 variants) ---
-    // Ces stratégies jouent C avec probabilité P si l'autre a fait C, 
+    // Ces stratégies jouent C avec probabilité P si l'autre a fait C,
     // et probabilité Q si l'autre a fait D. (Mémoire 1 stochastique)
     for i in 1..=10 {
         for j in 1..=10 {
@@ -35,8 +36,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
             let name = format!("Reactive (p={:.1}, q={:.1})", p, q);
             strategies.push(Box::new(FunctionalStrategy {
                 name,
-                next_move_fn: move |_, opp_h| {
-                    let mut rng = rand::rng();
+                next_move_fn: move |_: &[Action], opp_h: &[Action], rng: &mut dyn RngCore| {
                     match opp_h.last() {
                         Some(Action::Cooperate) => if rng.random_bool(p) { Action::Cooperate } else { Action::Defect },
                         Some(Action::Defect) => if rng.random_bool(q) { Action::Cooperate } else { Action::Defect },
@@ -53,14 +53,16 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Pattern Matcher (W={})", window);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |_, opp_h| {
+            next_move_fn: move |_: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
                 if opp_h.len() < window * 2 { return Action::Cooperate; }
                 let last_pattern = &opp_h[opp_h.len()-window..];
                 let prev_pattern = &opp_h[opp_h.len()-window*2..opp_h.len()-window];
                 if last_pattern == prev_pattern {
-                    // Si un cycle est détecté, on prédit le prochain coup et on le contre
-                    let next_pred = last_pattern[0]; // Le cycle va recommencer
-                    if next_pred == Action::Cooperate { Action::Defect } else { Action::Defect }
+                    // Cycle détecté → on prédit le prochain coup de l'adversaire
+                    // et on joue la meilleure réponse :
+                    //   - prédiction C → D (exploitation, gain T)
+                    //   - prédiction D → D (autoprotection, P > S)
+                    Action::Defect
                 } else {
                     opp_h.last().cloned().unwrap_or(Action::Cooperate)
                 }
@@ -75,7 +77,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Adaptive TFT (Target {:.0}%)", target_rate * 100.0);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |_, opp_h| {
+            next_move_fn: move |_: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
                 if opp_h.is_empty() { return Action::Cooperate; }
                 let current_rate = opp_h.iter().filter(|&&a| a == Action::Cooperate).count() as f64 / opp_h.len() as f64;
                 if current_rate < target_rate { Action::Defect } else { Action::Cooperate }
@@ -89,7 +91,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Backstabber (T={})", n);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |my_h, _| {
+            next_move_fn: move |my_h: &[Action], _: &[Action], _: &mut dyn RngCore| {
                 if my_h.len() >= n { Action::Defect } else { Action::Cooperate }
             },
         }) as Box<dyn Strategy>);
@@ -102,8 +104,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Bully ({:.0}%)", prob * 100.0);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |_, opp_h| {
-                let mut rng = rand::rng();
+            next_move_fn: move |_: &[Action], opp_h: &[Action], rng: &mut dyn RngCore| {
                 if !rng.random_bool(prob) { return Action::Defect; }
                 match opp_h.last() {
                     Some(Action::Cooperate) => Action::Defect,
@@ -120,10 +121,9 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Forgiving TFT ({:.1}%)", prob * 100.0);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |_, opp_h| {
+            next_move_fn: move |_: &[Action], opp_h: &[Action], rng: &mut dyn RngCore| {
                 match opp_h.last() {
                     Some(Action::Defect) => {
-                        let mut rng = rand::rng();
                         if rng.random_bool(prob) { Action::Cooperate } else { Action::Defect }
                     }
                     _ => Action::Cooperate,
@@ -136,7 +136,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Gradual (x{})", mult);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |_, opp_h| {
+            next_move_fn: move |_: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
                 let mut opp_defects = 0;
                 let mut p_left = 0;
                 let mut c_left = 0;
@@ -145,7 +145,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
                     else if c_left > 0 { c_left -= 1; }
                     else if act == Action::Defect {
                         opp_defects += 1;
-                        p_left = (opp_defects * mult / 10) + 1; 
+                        p_left = (opp_defects * mult / 10) + 1;
                         c_left = 2;
                     }
                 }
@@ -158,7 +158,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Handshake (Code #{})", code_id);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |my_h, opp_h| {
+            next_move_fn: move |my_h: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
                 let turn = my_h.len();
                 if turn < 3 {
                     if (code_id + turn) % 2 == 0 { Action::Cooperate } else { Action::Defect }
@@ -179,7 +179,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Omega-Detector (Thresh {})", threshold);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |my_h, opp_h| {
+            next_move_fn: move |my_h: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
                 if opp_h.len() < threshold { return opp_h.last().cloned().unwrap_or(Action::Cooperate); }
                 let mut inconsistencies = 0;
                 for i in 1..opp_h.len() {
@@ -196,8 +196,7 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         let name = format!("Biased Random ({:.0}%)", prob * 100.0);
         strategies.push(Box::new(FunctionalStrategy {
             name,
-            next_move_fn: move |_, _| {
-                let mut rng = rand::rng();
+            next_move_fn: move |_: &[Action], _: &[Action], rng: &mut dyn RngCore| {
                 if rng.random_bool(prob) { Action::Cooperate } else { Action::Defect }
             },
         }) as Box<dyn Strategy>);
