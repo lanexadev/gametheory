@@ -87,6 +87,61 @@ impl Strategy for GradualFamily {
     fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
 }
 
+/// Parameterised Adaptive TFT — defects when the opponent's running cooperation
+/// rate drops below `target_rate`, otherwise cooperates. Without scratch this is
+/// O(N) per turn → O(N²) per match; the `Custom` scratch turns it into O(1).
+#[derive(Clone)]
+struct AdaptiveTftFamily {
+    name: String,
+    target_rate: f64,
+}
+
+#[derive(Default, Clone)]
+struct AdaptiveTftState {
+    coop_count: usize,
+    processed: usize,
+}
+
+impl Strategy for AdaptiveTftFamily {
+    fn name(&self) -> &str { &self.name }
+
+    fn next_move(&self, _: &[Action], opp_h: &[Action], _: &mut dyn RngCore) -> Action {
+        if opp_h.is_empty() { return Action::Cooperate; }
+        let coop = opp_h.iter().filter(|&&a| a == Action::Cooperate).count();
+        let rate = coop as f64 / opp_h.len() as f64;
+        if rate < self.target_rate { Action::Defect } else { Action::Cooperate }
+    }
+
+    fn init_scratch(&self) -> StrategyScratch {
+        StrategyScratch::Custom(Box::new(AdaptiveTftState::default()))
+    }
+
+    fn next_move_stateful(
+        &self,
+        my_h: &[Action],
+        opp_h: &[Action],
+        scratch: &mut StrategyScratch,
+        rng: &mut dyn RngCore,
+    ) -> Action {
+        if let StrategyScratch::Custom(b) = scratch {
+            if let Some(state) = b.downcast_mut::<AdaptiveTftState>() {
+                while state.processed < opp_h.len() {
+                    if opp_h[state.processed] == Action::Cooperate {
+                        state.coop_count += 1;
+                    }
+                    state.processed += 1;
+                }
+                if state.processed == 0 { return Action::Cooperate; }
+                let rate = state.coop_count as f64 / state.processed as f64;
+                return if rate < self.target_rate { Action::Defect } else { Action::Cooperate };
+            }
+        }
+        self.next_move(my_h, opp_h, rng)
+    }
+
+    fn clone_box(&self) -> Box<dyn Strategy> { Box::new(self.clone()) }
+}
+
 /// Parameterised Omega-Detector — counts (my=C, opp=D) inconsistencies and
 /// switches to defect once the running count exceeds `threshold/2`. Scratch
 /// keeps the running count across turns.
@@ -199,18 +254,12 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
     }
 
     // --- FAMILLE ADAPTIVE TFT (50 variants) ---
-    // Ajuste son pardon dynamiquement selon le taux de coopération global
+    // Ajuste son pardon dynamiquement selon le taux de coopération global.
+    // Implémentation O(1) per-turn via `StrategyScratch::Custom`.
     for target in 1..=50 {
         let target_rate = target as f64 / 50.0;
         let name = format!("Adaptive TFT (Target {:.0}%)", target_rate * 100.0);
-        strategies.push(Box::new(FunctionalStrategy {
-            name,
-            next_move_fn: move |_: &[Action], opp_h: &[Action], _: &mut dyn RngCore| {
-                if opp_h.is_empty() { return Action::Cooperate; }
-                let current_rate = opp_h.iter().filter(|&&a| a == Action::Cooperate).count() as f64 / opp_h.len() as f64;
-                if current_rate < target_rate { Action::Defect } else { Action::Cooperate }
-            },
-        }) as Box<dyn Strategy>);
+        strategies.push(Box::new(AdaptiveTftFamily { name, target_rate }) as Box<dyn Strategy>);
     }
 
     // --- FAMILLE BACKSTABBER (50 variants) ---

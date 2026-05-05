@@ -382,12 +382,19 @@ impl Tournament {
         scores
     }
 
+    /// Swiss-system tournament. Per-turn normalised scoring (matches `run_round_robin`):
+    /// each round's contribution is `score / turns_played`, accumulated over rounds, then
+    /// projected back to an `iterations`-equivalent total for display compatibility.
+    /// Without normalisation, `discount_factor > 0` would silently demote strategies
+    /// whose matches end early.
     pub fn run_swiss(&self, rounds: usize) -> HashMap<String, i32> {
-        let mut scores: Vec<(i32, Box<dyn Strategy>)> = self.strategies.iter().map(|s| (0, s.clone())).collect();
+        let mut scores: Vec<(f64, Box<dyn Strategy>)> = self.strategies.iter()
+            .map(|s| (0.0f64, s.clone()))
+            .collect();
 
         for r in 0..rounds {
-            scores.sort_by(|a, b| b.0.cmp(&a.0));
-            
+            scores.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
             // Extract pairs sequentially to handle mutability
             let mut pairs = Vec::new();
             for i in (0..scores.len()).step_by(2) {
@@ -400,17 +407,24 @@ impl Tournament {
                 let s1 = &scores[i].1;
                 let s2 = &scores[j].1;
                 let match_seed = self.game.seed.map(|s| s.wrapping_add((r * scores.len() + i) as u64));
-                let (sc1, sc2, _) = self.game.play(s1.as_ref(), s2.as_ref(), match_seed);
-                (i, j, sc1, sc2)
+                let (sc1, sc2, history) = self.game.play(s1.as_ref(), s2.as_ref(), match_seed);
+                let turns = history.len().max(1) as f64;
+                (i, j, sc1 as f64 / turns, sc2 as f64 / turns)
             }).collect();
 
-            for (i, j, sc1, sc2) in results {
-                scores[i].0 += sc1;
-                scores[j].0 += sc2;
+            for (i, j, sc1_per_turn, sc2_per_turn) in results {
+                scores[i].0 += sc1_per_turn;
+                scores[j].0 += sc2_per_turn;
             }
         }
 
-        scores.into_iter().map(|(s, strat)| (strat.name().to_string(), s)).collect()
+        let scale = self.game.iterations as f64;
+        scores
+            .into_iter()
+            .map(|(per_turn_sum, strat)| {
+                (strat.name().to_string(), (per_turn_sum * scale).round() as i32)
+            })
+            .collect()
     }
 
     pub fn run_grand_finale(&self, top_n: usize) -> String {
@@ -430,8 +444,42 @@ impl Tournament {
         final_results.into_iter().max_by_key(|&(_, score)| score).unwrap().0
     }
 
+    /// Legacy truncation-only evolution (kept for backward compatibility).
+    /// New callers should prefer `run_evolution_with_options`.
     pub fn run_evolution(&mut self, generations: usize, reproduction_rate: f64) -> (HashMap<String, i32>, Vec<HashMap<String, usize>>) {
+        self.run_evolution_with_options(generations, reproduction_rate, 0.0, 0.0, None)
+    }
+
+    /// Evolutionary tournament with three selection regimes, picked by params:
+    ///
+    /// - `selection_temperature == 0.0` → **truncation**: top-`keep_count` reproduce
+    ///   identically (legacy behaviour). Deterministic given a seed.
+    /// - `selection_temperature > 0.0`  → **softmax roulette wheel**: each parent is
+    ///   sampled with probability proportional to `exp((fitness - max) / T)`. Higher T
+    ///   = more diversity preserved; lower T → truncation in the limit.
+    ///
+    /// `mutation_rate` injects exploration: with probability `p_mut`, a child slot is
+    /// replaced by a fresh sample from `mutation_pool` instead of a clone of the
+    /// selected parent. Without this, the population is bounded forever by its
+    /// initial set — no novelty can emerge. Pool defaults to the current population
+    /// (effectively a permutation re-sample) when `None` is passed and mutation is on.
+    ///
+    /// All randomness is derived from `Game.seed` (when set) so runs are reproducible.
+    pub fn run_evolution_with_options(
+        &mut self,
+        generations: usize,
+        reproduction_rate: f64,
+        mutation_rate: f64,
+        selection_temperature: f64,
+        mutation_pool: Option<Vec<Box<dyn Strategy>>>,
+    ) -> (HashMap<String, i32>, Vec<HashMap<String, usize>>) {
         let mut history = Vec::new();
+        let mut rng = match self.game.seed {
+            Some(s) => ChaCha8Rng::seed_from_u64(s.wrapping_add(0xE_0_E_0_E_0_E_0)),
+            None => ChaCha8Rng::from_os_rng(),
+        };
+        let mut_rate = mutation_rate.clamp(0.0, 1.0);
+        let temp = selection_temperature.max(0.0);
 
         for _ in 0..generations {
             let mut counts = HashMap::new();
@@ -444,27 +492,73 @@ impl Tournament {
             // sum of every clone's score. Without this, a strategy present N times in the
             // population gets ~N× the score mechanically and outcompetes minorities
             // regardless of intrinsic quality.
-            let per_individual = self.run_round_robin_per_individual();
-            let mut ranked: Vec<(usize, f64)> = per_individual
-                .into_iter()
-                .enumerate()
-                .collect();
-            ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
+            let fitness = self.run_round_robin_per_individual();
             let pop_size = self.strategies.len();
             let keep_count = (pop_size as f64 * (1.0 - reproduction_rate)) as usize;
             let keep_count = keep_count.max(1).min(pop_size);
 
-            let mut next_gen = Vec::with_capacity(pop_size);
-            for k in 0..keep_count {
-                let idx = ranked[k].0;
-                next_gen.push(self.strategies[idx].clone());
-            }
+            // Build parent index list according to selection regime.
+            let parent_indices: Vec<usize> = if temp <= 0.0 {
+                let mut ranked: Vec<(usize, f64)> = fitness
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &f)| (i, f))
+                    .collect();
+                ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                let mut out = Vec::with_capacity(pop_size);
+                for k in 0..keep_count {
+                    out.push(ranked[k].0);
+                }
+                let replace_count = pop_size - keep_count;
+                for k in 0..replace_count {
+                    out.push(ranked[k % keep_count].0);
+                }
+                out
+            } else {
+                // Softmax over (fitness - max) / T to keep weights numerically stable.
+                let max_f = fitness.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let weights: Vec<f64> = fitness
+                    .iter()
+                    .map(|&f| ((f - max_f) / temp).exp())
+                    .collect();
+                let total: f64 = weights.iter().sum();
+                if total <= 0.0 || !total.is_finite() {
+                    // Degenerate weights → fall back to uniform sampling.
+                    (0..pop_size).map(|_| rng.random_range(0..pop_size)).collect()
+                } else {
+                    (0..pop_size)
+                        .map(|_| {
+                            let r: f64 = rng.random::<f64>() * total;
+                            let mut acc = 0.0;
+                            for (i, &w) in weights.iter().enumerate() {
+                                acc += w;
+                                if acc >= r {
+                                    return i;
+                                }
+                            }
+                            weights.len() - 1
+                        })
+                        .collect()
+                }
+            };
 
-            let replace_count = pop_size - keep_count;
-            for k in 0..replace_count {
-                let idx = ranked[k % keep_count].0;
-                next_gen.push(self.strategies[idx].clone());
+            let mut next_gen: Vec<Box<dyn Strategy>> = Vec::with_capacity(pop_size);
+            for &idx in &parent_indices {
+                if mut_rate > 0.0 && rng.random_bool(mut_rate) {
+                    if let Some(ref pool) = mutation_pool {
+                        if !pool.is_empty() {
+                            let p = rng.random_range(0..pool.len());
+                            next_gen.push(pool[p].clone_box());
+                            continue;
+                        }
+                    }
+                    // Pool absent → resample from current population (still injects
+                    // recombination-like noise relative to pure truncation).
+                    let p = rng.random_range(0..self.strategies.len());
+                    next_gen.push(self.strategies[p].clone_box());
+                    continue;
+                }
+                next_gen.push(self.strategies[idx].clone_box());
             }
 
             self.strategies = next_gen;
@@ -526,6 +620,11 @@ pub struct SpatialTournament {
     pool: Vec<Box<dyn Strategy>>,
     pub game: Game,
     pub topology: Neighborhood,
+    /// Monotonic step counter mixed into per-match seeds so consecutive steps
+    /// produce different RNG sequences. Without this, every (A vs B) match
+    /// at the same neighbourhood offset would be replayed identically each
+    /// step under noise, collapsing the spatial dynamic to a fixed point.
+    step_count: u64,
 }
 
 impl SpatialTournament {
@@ -551,7 +650,7 @@ impl SpatialTournament {
         for _ in 0..(width * height) {
             grid.push(rng.random_range(0..pool.len()));
         }
-        Self { grid, width, height, pool, game, topology }
+        Self { grid, width, height, pool, game, topology, step_count: 0 }
     }
 
     #[inline]
@@ -564,6 +663,8 @@ impl SpatialTournament {
         let height = self.height;
         let total = width * height;
         let topology = self.topology;
+        let step_id = self.step_count;
+        let base_seed = self.game.seed;
 
         // Score pass: each cell's payoff is independent, parallelise over the
         // flat index space. Reading `self.grid` and `self.pool` by shared
@@ -573,11 +674,19 @@ impl SpatialTournament {
             let x = idx % width;
             let s1 = self.pool[self.cell(y, x)].as_ref();
             let mut cell_score = 0;
-            for &(dy, dx) in topology.offsets(y % 2 == 0) {
+            for (n_idx, &(dy, dx)) in topology.offsets(y % 2 == 0).iter().enumerate() {
                 let ny = (y as isize + dy as isize).rem_euclid(height as isize) as usize;
                 let nx = (x as isize + dx as isize).rem_euclid(width as isize) as usize;
                 let s2 = self.pool[self.cell(ny, nx)].as_ref();
-                let (sc1, _, _) = self.game.play(s1, s2, None);
+                // Per-(step, cell, neighbour) seed derivation: without mixing
+                // step_id, every match between the same pair at the same
+                // offset would be replayed bit-identically each step.
+                let match_seed = base_seed.map(|base| {
+                    base.wrapping_add(step_id.wrapping_mul(1_000_003))
+                        .wrapping_add((idx as u64).wrapping_mul(31))
+                        .wrapping_add(n_idx as u64)
+                });
+                let (sc1, _, _) = self.game.play(s1, s2, match_seed);
                 cell_score += sc1;
             }
             cell_score
@@ -603,6 +712,7 @@ impl SpatialTournament {
         }).collect();
 
         self.grid = new_grid;
+        self.step_count = self.step_count.wrapping_add(1);
     }
 
     pub fn get_population_counts(&self) -> HashMap<String, usize> {

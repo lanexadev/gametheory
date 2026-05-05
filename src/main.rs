@@ -83,6 +83,18 @@ struct Args {
     /// Export the full N×N pair-score matrix (mean per-turn) as CSV.
     #[arg(long)]
     export_matrix: Option<String>,
+
+    /// Evolution mutation rate in [0,1]: probability that a child slot is replaced
+    /// by a fresh draw from the global strategy pool (exploration). 0 = legacy
+    /// behaviour (no mutation, population bounded forever by the initial set).
+    #[arg(long, default_value_t = 0.0)]
+    mutation_rate: f64,
+
+    /// Evolution selection temperature. 0 = top-N truncation (legacy, deterministic).
+    /// >0 = softmax-weighted roulette over fitness — higher T preserves diversity,
+    /// lower T converges toward truncation.
+    #[arg(long, default_value_t = 0.0)]
+    selection_temperature: f64,
 }
 
 fn main() {
@@ -111,6 +123,21 @@ fn main() {
     }
 
     let strategies = strategies::get_all_strategies();
+
+    // ZD strategies are derived from canonical Axelrod payoffs (5,3,1,0). Under
+    // any other valid IPD payoff vector the Press-Dyson invariant no longer
+    // holds — the strategies still play coherently but lose their theoretical
+    // guarantees. Warn the user once at startup so the result interpretation
+    // stays honest.
+    let canonical_payoffs = (5, 3, 1, 0);
+    let user_payoffs = (args.payoff_t, args.payoff_r, args.payoff_p, args.payoff_s);
+    if user_payoffs != canonical_payoffs && strategies.iter().any(|s| s.name().starts_with("ZD-")) {
+        eprintln!(
+            "Warning: ZD strategies present but payoffs are non-canonical (expected {:?}, got {:?}). The Press-Dyson invariant no longer holds; ZD agents will run but their extortion/generosity guarantees are void.",
+            canonical_payoffs, user_payoffs
+        );
+    }
+
     let results: HashMap<String, i32>;
 
     if args.spatial {
@@ -143,8 +170,28 @@ fn main() {
         .with_include_self_play(!args.no_self_play);
 
     if args.evolution {
-        println!("Running Evolutionary Tournament ({} generations, {:.0}% reproduction)...", args.generations, args.reproduction_rate * 100.0);
-        let (final_scores, evolution_history) = tournament.run_evolution(args.generations, args.reproduction_rate);
+        println!(
+            "Running Evolutionary Tournament ({} generations, {:.0}% reproduction, mutation={}, selection_T={})...",
+            args.generations,
+            args.reproduction_rate * 100.0,
+            args.mutation_rate,
+            args.selection_temperature,
+        );
+        // Mutation pool: full diverse set of strategies, NOT just the current
+        // tournament population — this is what gives evolution real exploration
+        // power instead of mere recombination.
+        let mutation_pool = if args.mutation_rate > 0.0 {
+            Some(strategies::get_all_strategies())
+        } else {
+            None
+        };
+        let (final_scores, evolution_history) = tournament.run_evolution_with_options(
+            args.generations,
+            args.reproduction_rate,
+            args.mutation_rate,
+            args.selection_temperature,
+            mutation_pool,
+        );
         results = final_scores;
         
         if let Some(path) = &args.export_csv {
