@@ -1,0 +1,306 @@
+Strategy,Score
+Adaptive TFT (Target 98%),7857
+Adaptive TFT (Target 100%),6693
+Adaptive TFT (Target 94%),6402
+Adaptive TFT (Target 92%),6400
+Adaptive TFT (Target 96%),6111
+Omega-Detector (Thresh 2),4947
+Omega-Detector (Thresh 3),4074
+Adaptive TFT (Target 90%),3781
+Adaptive TFT (Target 88%),3779
+Omega-Detector (Thresh 4),3492
+Adaptive TFT (Target 86%),3488
+Adaptive TFT (Target 82%),2906
+Omega-Detector (Thresh 5),2619
+Adaptive TFT (Target 84%),2616
+Adaptive TFT (Target 78%),2323
+Adaptive TFT (Target 80%),2033
+Omega-Detector (Thresh 7),1455
+Omega-Detector (Thresh 6),1455
+Omega-Detector (Thresh 12),1455
+Omega-Detector (Thresh 11),1455
+Adaptive TFT (Target 74%),1451
+Omega-Detector (Thresh 9),1164
+Omega-Detector (Thresh 16),1164
+Omega-Detector (Thresh 10),1164
+Omega-Detector (Thresh 8),1164
+Omega-Detector (Thresh 17),1164
+Omega-Detector (Thresh 15),1164
+Omega-Detector (Thresh 14),1164
+Omega-Detector (Thresh 13),1164
+Adaptive TFT (Target 76%),1163
+Adaptive TFT (Target 72%),1161
+Omega-Detector (Thresh 18),873
+Omega-Detector (Thresh 19),873
+Gradual (x38),584
+Gradual (x46),584
+Gradual (x37),584
+Gradual (x35),584
+Gradual (x49),584
+Gradual (x50),584
+Gradual (x34),584
+Gradual (x36),584
+Gradual (x39),584
+Gradual (x30),584
+Gradual (x33),584
+Gradual (x42),584
+Gradual (x32),584
+Gradual (x31),584
+Gradual (x40),584
+Gradual (x41),583
+Gradual (x45),583
+Gradual (x48),583
+Gradual (x47),583
+Gradual (x44),583
+Gradual (x43),583
+Omega-Detector (Thresh 21),582
+Omega-Detector (Thresh 20),582
+Omega-Detector (Thresh 22),582
+Omega-Detector (Thresh 25),582
+Omega-Detector (Thresh 23),582
+Omega-Detector (Thresh 24),582
+Adaptive TFT (Target 70%),581
+Forgiving TFT (11.0%),292
+Forgiving TFT (15.0%),292
+Forgiving TFT (10.0%),292
+Gradual (x3),292
+Forgiving TFT (29.0%),292
+Forgiving TFT (6.0%),292
+Gradual (x9),292
+Gradual (x8),292
+Gradual (x22),292
+Forgiving TFT (43.0%),292
+Forgiving TFT (42.0%),292
+Gradual (x26),292
+Forgiving TFT (13.0%),292
+Forgiving TFT (17.0%),292
+Gradual (x7),292
+Forgiving TFT (9.0%),292
+Forgiving TFT (21.0%),292
+Gradual (x10),292
+Forgiving TFT (32.0%),292
+Forgiving TFT (39.0%),292
+Gradual (x23),292
+Forgiving TFT (26.0%),292
+Forgiving TFT (5.0%),292
+Gradual (x18),292
+Gradual (x11),292
+Gradual (x15),292
+Gradual (x4),292
+"Reactive (p=1.0, q=0.4)",292
+Gradual (x20),292
+"Reactive (p=1.0, q=0.2)",292
+Gradual (x29),292
+Forgiving TFT (34.0%),292
+Forgiving TFT (27.0%),292
+Forgiving TFT (7.0%),292
+Forgiving TFT (18.0%),292
+Forgiving TFT (23.0%),292
+Gradual (x27),292
+Gradual (x28),292
+Gradual (x14),292
+Forgiving TFT (47.0%),292
+Forgiving TFT (38.0%),292
+Forgiving TFT (4.0%),292
+Forgiving TFT (33.0%),292
+Gradual (x2),292
+Gradual (x16),292
+Forgiving TFT (36.0%),292
+Forgiving TFT (41.0%),292
+Gradual (x21),292
+Forgiving TFT (8.0%),292
+Gradual (x25),292
+"Reactive (p=1.0, q=0.3)",292
+Forgiving TFT (24.0%),292
+Forgiving TFT (19.0%),292
+Gradual (x13),292
+Forgiving TFT (31.0%),292
+Forgiving TFT (22.0%),292
+Gradual (x12),292
+Gradual (x24),292
+Forgiving TFT (40.0%),292
+Forgiving TFT (44.0%),292
+Gradual (x19),292
+Forgiving TFT (30.0%),292
+Forgiving TFT (20.0%),292
+Forgiving TFT (14.0%),292
+Forgiving TFT (16.0%),292
+Forgiving TFT (12.0%),292
+Gradual (x5),292
+Forgiving TFT (25.0%),292
+Forgiving TFT (28.0%),292
+"Reactive (p=1.0, q=0.1)",292
+Forgiving TFT (37.0%),292
+Forgiving TFT (35.0%),292
+Omega-Detector (Thresh 46),291
+Forgiving TFT (71.0%),291
+Forgiving TFT (3.0%),291
+Omega-Detector (Thresh 51),291
+Omega-Detector (Thresh 43),291
+Forgiving TFT (56.0%),291
+Forgiving TFT (60.0%),291
+Omega-Detector (Thresh 37),291
+Forgiving TFT (72.0%),291
+Forgiving TFT (66.0%),291
+Omega-Detector (Thresh 45),291
+Forgiving TFT (65.0%),291
+Omega-Detector (Thresh 42),291
+Omega-Detector (Thresh 30),291
+Omega-Detector (Thresh 33),291
+"Reactive (p=1.0, q=0.7)",291
+Omega-Detector (Thresh 36),291
+Omega-Detector (Thresh 34),291
+Omega-Detector (Thresh 35),291
+Omega-Detector (Thresh 29),291
+Forgiving TFT (57.0%),291
+Forgiving TFT (61.0%),291
+"Reactive (p=1.0, q=0.5)",291
+Gradual (x1),291
+Forgiving TFT (48.0%),291
+Gradual (x17),291
+Forgiving TFT (46.0%),291
+Forgiving TFT (53.0%),291
+Omega-Detector (Thresh 41),291
+Forgiving TFT (70.0%),291
+Forgiving TFT (52.0%),291
+Forgiving TFT (58.0%),291
+Forgiving TFT (76.0%),291
+Forgiving TFT (68.0%),291
+Forgiving TFT (1.0%),291
+Forgiving TFT (51.0%),291
+Omega-Detector (Thresh 49),291
+Omega-Detector (Thresh 40),291
+Omega-Detector (Thresh 38),291
+Forgiving TFT (69.0%),291
+Omega-Detector (Thresh 44),291
+Forgiving TFT (50.0%),291
+Forgiving TFT (49.0%),291
+"Reactive (p=1.0, q=0.6)",291
+Gradual (x6),291
+Omega-Detector (Thresh 47),291
+Omega-Detector (Thresh 31),291
+Omega-Detector (Thresh 27),291
+Forgiving TFT (2.0%),291
+Forgiving TFT (62.0%),291
+Omega-Detector (Thresh 50),291
+Forgiving TFT (54.0%),291
+Forgiving TFT (59.0%),291
+Forgiving TFT (67.0%),291
+Forgiving TFT (64.0%),291
+Forgiving TFT (45.0%),291
+Omega-Detector (Thresh 32),291
+Forgiving TFT (75.0%),291
+Forgiving TFT (79.0%),291
+Forgiving TFT (55.0%),291
+Omega-Detector (Thresh 48),291
+Omega-Detector (Thresh 28),291
+Omega-Detector (Thresh 39),291
+Forgiving TFT (63.0%),291
+Omega-Detector (Thresh 26),291
+Forgiving TFT (80.0%),290
+Adaptive TFT (Target 56%),290
+Adaptive TFT (Target 66%),290
+Adaptive TFT (Target 60%),290
+Forgiving TFT (88.0%),290
+Forgiving TFT (84.0%),290
+Forgiving TFT (73.0%),290
+Forgiving TFT (83.0%),290
+Adaptive TFT (Target 30%),290
+Adaptive TFT (Target 42%),290
+Forgiving TFT (81.0%),290
+"Reactive (p=1.0, q=0.8)",290
+Adaptive TFT (Target 52%),290
+Forgiving TFT (82.0%),290
+Adaptive TFT (Target 48%),290
+Forgiving TFT (87.0%),290
+Adaptive TFT (Target 44%),290
+Adaptive TFT (Target 40%),290
+Forgiving TFT (78.0%),290
+Adaptive TFT (Target 24%),290
+Forgiving TFT (86.0%),290
+Forgiving TFT (74.0%),290
+Adaptive TFT (Target 32%),290
+Adaptive TFT (Target 46%),290
+Adaptive TFT (Target 28%),290
+Adaptive TFT (Target 26%),290
+Adaptive TFT (Target 54%),290
+Adaptive TFT (Target 50%),290
+Adaptive TFT (Target 38%),290
+Adaptive TFT (Target 68%),290
+Forgiving TFT (77.0%),290
+Adaptive TFT (Target 58%),290
+"Reactive (p=1.0, q=0.9)",290
+Adaptive TFT (Target 62%),290
+Forgiving TFT (85.0%),290
+Adaptive TFT (Target 36%),290
+Adaptive TFT (Target 64%),290
+Adaptive TFT (Target 34%),290
+Forgiving TFT (94.0%),289
+Forgiving TFT (90.0%),289
+Forgiving TFT (89.0%),289
+Adaptive TFT (Target 10%),289
+Forgiving TFT (93.0%),289
+Forgiving TFT (92.0%),289
+Adaptive TFT (Target 14%),289
+Adaptive TFT (Target 20%),289
+Adaptive TFT (Target 18%),289
+Adaptive TFT (Target 12%),289
+Forgiving TFT (91.0%),289
+Adaptive TFT (Target 16%),289
+Adaptive TFT (Target 22%),289
+Forgiving TFT (95.0%),288
+Adaptive TFT (Target 4%),288
+Adaptive TFT (Target 6%),288
+Forgiving TFT (97.0%),288
+Forgiving TFT (96.0%),288
+Adaptive TFT (Target 8%),288
+Backstabber (T=90),287
+Adaptive TFT (Target 2%),287
+Backstabber (T=80),279
+Backstabber (T=70),268
+Backstabber (T=60),255
+Backstabber (T=50),241
+Biased Random (94%),230
+Backstabber (T=40),227
+"Reactive (p=0.9, q=0.1)",218
+Backstabber (T=30),212
+"Reactive (p=0.9, q=0.2)",212
+"Reactive (p=0.9, q=0.3)",212
+"Reactive (p=0.9, q=0.4)",208
+"Reactive (p=0.9, q=0.5)",206
+Pattern Matcher (W=11),205
+"Reactive (p=0.9, q=0.8)",203
+Pattern Matcher (W=10),203
+"Reactive (p=0.9, q=0.6)",202
+Pattern Matcher (W=9),199
+"Reactive (p=0.9, q=0.7)",198
+Backstabber (T=20),196
+Pattern Matcher (W=8),195
+Pattern Matcher (W=7),191
+"Reactive (p=0.8, q=0.1)",188
+Pattern Matcher (W=6),187
+"Reactive (p=0.8, q=0.2)",187
+Pattern Matcher (W=5),184
+"Reactive (p=0.8, q=0.3)",183
+"Reactive (p=0.8, q=0.4)",181
+"Reactive (p=0.8, q=0.5)",179
+Backstabber (T=10),178
+Pattern Matcher (W=4),178
+"Reactive (p=0.7, q=0.1)",176
+"Reactive (p=0.7, q=0.2)",175
+Pattern Matcher (W=3),174
+"Reactive (p=0.6, q=0.1)",174
+"Reactive (p=0.7, q=0.3)",174
+"Reactive (p=0.8, q=0.6)",171
+"Reactive (p=0.5, q=0.1)",170
+"Reactive (p=0.6, q=0.2)",169
+"Reactive (p=0.6, q=0.3)",167
+Handshake (Code #4),163
+Handshake (Code #2),163
+Handshake (Code #14),163
+Handshake (Code #12),163
+Handshake (Code #16),163
+Handshake (Code #46),163
+Handshake (Code #20),163
+Handshake (Code #32),163
+Handshake (Code #6),163
