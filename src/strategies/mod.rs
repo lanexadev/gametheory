@@ -20,6 +20,9 @@ pub mod omega_tft;
 pub mod soft_grudger;
 pub mod zd;
 pub mod wsls;
+pub mod q_learning;
+pub mod bayesian;
+pub mod lookahead;
 
 /// Parameterised Gradual variant — punish/cooldown state machine where the
 /// punishment length scales with `mult`. Carries scratch so the per-turn
@@ -315,6 +318,56 @@ pub fn get_generative_strategies() -> Vec<Box<dyn Strategy>> {
         for sl in [0.5, 0.7, 0.85, 0.95, 1.0] {
             strategies.push(Box::new(wsls::wsls(sw, sl)) as Box<dyn Strategy>);
         }
+    }
+
+    // --- LEARNING / MODEL-BASED FAMILY ---
+    // Three orthogonal "smart" archetypes that exploit `StrategyScratch::Custom`:
+    //   • Q-Learning  — model-free RL, ε-greedy over Q(state, action) with
+    //     state = last-K joint moves. K=1/2 chosen to keep the table small
+    //     enough to converge inside a 200–1000-turn match.
+    //   • Bayesian    — posterior over a finite archetype basis (AC, AD, TFT,
+    //     Random); plays expected-value best response. Identifies and
+    //     exploits exploitable opponents within ~10–20 turns.
+    //   • Lookahead   — depth-limited minimax against a fixed opponent model.
+    //     With TFT model and depth ≥ 2, learns to cooperate; with AlwaysC
+    //     model and any depth, learns to defect.
+
+    // 6 Q-Learning variants spanning fast-greedy → slow-explorative learners.
+    let q_grid = [
+        (0.50, 0.90, 0.05, 1usize),
+        (0.30, 0.95, 0.10, 1),
+        (0.20, 0.95, 0.05, 2),
+        (0.10, 0.95, 0.10, 2),
+        (0.05, 0.99, 0.20, 2),
+        (0.10, 0.99, 0.05, 3),
+    ];
+    for (a, g, e, k) in q_grid {
+        strategies.push(Box::new(q_learning::QLearning::new(a, g, e, k)) as Box<dyn Strategy>);
+    }
+
+    // 4 Bayesian classifiers — full basis vs reduced bases, default smoothing.
+    let bay_payoffs = (5.0, 3.0, 1.0, 0.0);
+    use bayesian::Archetype as A;
+    let archetype_sets: Vec<Vec<A>> = vec![
+        vec![A::AlwaysC, A::AlwaysD, A::TitForTat, A::Random],
+        vec![A::AlwaysC, A::AlwaysD, A::TitForTat],
+        vec![A::AlwaysC, A::AlwaysD],
+        vec![A::TitForTat, A::AlwaysD, A::Random],
+    ];
+    for set in archetype_sets {
+        strategies.push(Box::new(bayesian::BayesianOpponent::new(set, bay_payoffs)) as Box<dyn Strategy>);
+    }
+
+    // 5 Lookahead agents over varying depth × opponent model.
+    let look_specs: Vec<(usize, f64, Box<dyn Strategy>)> = vec![
+        (1, 0.95, Box::new(tit_for_tat::TitForTat)),
+        (2, 0.95, Box::new(tit_for_tat::TitForTat)),
+        (3, 0.95, Box::new(tit_for_tat::TitForTat)),
+        (2, 0.95, Box::new(grudger::Grudger)),
+        (2, 0.95, Box::new(always_cooperate::AlwaysCooperate)),
+    ];
+    for (d, g, model) in look_specs {
+        strategies.push(Box::new(lookahead::Lookahead::new(d, g, model)) as Box<dyn Strategy>);
     }
 
     strategies
